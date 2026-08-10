@@ -42,7 +42,7 @@ pub(super) fn build(snap: &Value) -> anyhow::Result<ViewSpec> {
     Ok(ViewSpec {
         turns,
         total_tokens,
-        limit_tokens: 128_000,
+        limit_tokens: crate::config::CONTEXT_LIMIT_TOKENS,
         context_pct: 0u8,
     })
 }

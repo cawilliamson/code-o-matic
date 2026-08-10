@@ -22,7 +22,7 @@ pub(super) fn build(snap: &Value) -> anyhow::Result<ViewSpec> {
 
     let mut turns = Vec::new();
     let mut total_tokens = 0usize;
-    let limit_tokens = 128_000usize;
+    let limit_tokens = crate::config::CONTEXT_LIMIT_TOKENS;
 
     let mut idx = 0usize;
     while idx < content_msgs.len() {

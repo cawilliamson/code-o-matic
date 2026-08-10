@@ -78,8 +78,6 @@ pub struct TuiAgent {
     cached_total_tokens: usize,
     cached_limit_tokens: usize,
     cached_context_pct: usize,
-    cached_cost: String,
-    cached_last_tokens: usize,
 }
 
 impl TuiAgent {
@@ -106,10 +104,8 @@ impl TuiAgent {
             cached_tool_count: 0,
             cached_command_names: Vec::new(),
             cached_total_tokens: 0,
-            cached_limit_tokens: 128_000,
+            cached_limit_tokens: crate::config::CONTEXT_LIMIT_TOKENS,
             cached_context_pct: 0,
-            cached_cost: "0.000000".to_string(),
-            cached_last_tokens: 0,
         }
     }
 
@@ -122,11 +118,10 @@ impl TuiAgent {
         self.cached_command_names = agent.commands.names();
         self.model_name = agent.config.model.clone();
 
-        // token estimate from history message char counts
-        let total_chars: usize =
-            agent.history.messages.iter().map(|m| m.content.chars().count()).sum();
-        self.cached_total_tokens = total_chars / 4;
-        self.cached_limit_tokens = 128_000;
+        // token estimate from the full request the agent would send.
+        let schemas = agent.tools.schemas();
+        self.cached_total_tokens = agent.history.estimated_request_tokens(&schemas);
+        self.cached_limit_tokens = crate::config::CONTEXT_LIMIT_TOKENS;
         let pct = if self.cached_limit_tokens > 0 {
             ((self.cached_total_tokens as f64 / self.cached_limit_tokens as f64) * 100.0) as usize
         } else {
@@ -381,20 +376,23 @@ impl TuiAgent {
 
     fn draw_chat_area(&self, f: &mut Frame<'_>, area: Rect) {
         let mut lines: Vec<Line<'_>> = Vec::new();
+        let width = area.width.saturating_sub(2) as usize;
 
         for m in &self.messages {
-            render_message(&mut lines, m, &self.model_name);
+            render_message(&mut lines, m, &self.model_name, width);
         }
 
         // reasoning line above the streaming answer while busy
         if self.busy && !self.reasoning.is_empty() && self.reasoning_visible {
             let spinner = thinking_spinner();
-            lines.push(Line::styled(
-                format!("{spinner} thinking… {}", self.reasoning),
+            push_styled_wrapped(
+                &mut lines,
+                &format!("{spinner} thinking… {}", self.reasoning),
                 Style::default()
                     .fg(Color::DarkGray)
                     .add_modifier(Modifier::ITALIC),
-            ));
+                width,
+            );
             lines.push(Line::from(""));
         }
 
@@ -408,18 +406,21 @@ impl TuiAgent {
                 &mut lines,
                 &TuiMessage { role: Role::Assistant, content: text },
                 &self.model_name,
+                width,
             );
         }
 
         // thinking indicator before any content arrives
         if self.busy && self.streaming.is_empty() && self.reasoning.is_empty() {
             let spinner = thinking_spinner();
-            lines.push(Line::styled(
-                format!("{spinner} thinking…"),
+            push_styled_wrapped(
+                &mut lines,
+                &format!("{spinner} thinking…"),
                 Style::default()
                     .fg(Color::DarkGray)
                     .add_modifier(Modifier::ITALIC),
-            ));
+                width,
+            );
             lines.push(Line::from(""));
         }
 
@@ -433,10 +434,7 @@ impl TuiAgent {
             .border_style(Style::default().fg(Color::DarkGray))
             .title(Span::styled(" conversation ", Style::default().fg(Color::DarkGray)));
 
-        let chat = Paragraph::new(lines)
-            .block(block)
-            .wrap(Wrap { trim: false })
-            .scroll((scroll, 0));
+        let chat = Paragraph::new(lines).block(block).scroll((scroll, 0));
         f.render_widget(chat, area);
 
         // vertical scrollbar when content overflows
@@ -526,10 +524,6 @@ impl TuiAgent {
             Span::styled("/help commands", Style::default().fg(Color::White)),
             sep.clone(),
             Span::styled("ctrl+r reasoning", Style::default().fg(Color::White)),
-            sep.clone(),
-            Span::styled(format!("${}", self.last_cost()), Style::default().fg(Color::White)),
-            sep,
-            Span::styled(format!("{} tok", self.last_tokens()), Style::default().fg(Color::White)),
         ]);
         let bar = Paragraph::new(Text::from(vec![footer]))
             .style(Style::default().bg(Color::Black))
@@ -563,14 +557,6 @@ impl TuiAgent {
 
     fn context_tokens(&self) -> (usize, usize, usize) {
         (self.cached_total_tokens, self.cached_limit_tokens, self.cached_context_pct)
-    }
-
-    fn last_cost(&self) -> String {
-        self.cached_cost.clone()
-    }
-
-    fn last_tokens(&self) -> usize {
-        self.cached_last_tokens
     }
 
     fn build_detail_lines(&self, viewer: &ContextViewerState) -> Vec<Line<'static>> {
@@ -1009,11 +995,22 @@ async fn run_turn_inner(
     }
 
     loop {
-        // build request under lock, then release
-        let req = {
-            let a = agent.lock().await;
-            a.history.to_request(&a.config.model, &a.tools.schemas())
+        // prune if the request would exceed the context window, then build
+        // the request under lock and release the lock before streaming.
+        let (req, dropped) = {
+            let mut a = agent.lock().await;
+            let schemas = a.tools.schemas();
+            let d =
+                a.history.prune_for_context(&schemas, crate::config::CONTEXT_LIMIT_TOKENS * 4 / 5);
+            (a.history.to_request(&a.config.model, &schemas), d)
         };
+        if dropped > 0 {
+            let _ = tx
+                .send(UiEvent::Status(format!(
+                    "context full: dropped {dropped} old messages"
+                )))
+                .await;
+        }
         // start stream under lock (needs &self), then release lock during .recv().await
         let mut rx = {
             let a = agent.lock().await;
@@ -1088,13 +1085,49 @@ async fn run_turn_inner(
     }
 }
 
-// render a message with a left-border accent, role label, and indented continuation.
-// width is the available inner width of the chat area. lines are pushed into `lines`.
-fn render_message(lines: &mut Vec<Line<'_>>, m: &TuiMessage, model_name: &str) {
+// wrap `text` into lines no longer than `width` characters, never splitting a
+// multi-byte char. empty lines in the source are preserved.
+fn wrapped_lines(text: &str, width: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    let width = width.max(1);
+    for line in text.lines() {
+        if line.is_empty() {
+            out.push(String::new());
+            continue;
+        }
+        let mut start = 0;
+        let bytes = line.as_bytes();
+        while start < bytes.len() {
+            let mut end = (start + width).min(bytes.len());
+            while end > start && !line.is_char_boundary(end) {
+                end -= 1;
+            }
+            if end == start {
+                end = (start + width).min(bytes.len());
+            }
+            if end <= start {
+                break;
+            }
+            out.push(line[start..end].to_string());
+            start = end;
+        }
+    }
+    out
+}
+
+fn push_styled_wrapped(lines: &mut Vec<Line<'_>>, text: &str, style: Style, width: usize) {
+    for chunk in wrapped_lines(text, width) {
+        lines.push(Line::styled(chunk, style));
+    }
+}
+
+// render a message with a role label, coloured body, and indented continuation.
+// width is the available inner width of the chat area.
+fn render_message(lines: &mut Vec<Line<'_>>, m: &TuiMessage, model_name: &str, width: usize) {
     let (label_colour, body_colour, label) = match m.role {
         Role::User => (Color::Cyan, Color::Cyan, "you".to_string()),
         Role::Assistant => (Color::LightBlue, Color::White, model_name.to_string()),
-        Role::Tool => return render_tool_card(lines, m),
+        Role::Tool => return render_tool_card(lines, m, width),
         Role::System => (Color::DarkGray, Color::DarkGray, "sys".to_string()),
     };
 
@@ -1105,17 +1138,22 @@ fn render_message(lines: &mut Vec<Line<'_>>, m: &TuiMessage, model_name: &str) {
             Style::default().fg(label_colour).add_modifier(Modifier::BOLD),
         ),
     ]));
+    let inner = width.saturating_sub(2).max(1);
+    let indent = "  ";
     if m.content.is_empty() {
-        lines.push(Line::styled("  —", Style::default().fg(body_colour)));
+        lines.push(Line::styled(format!("{indent}—"), Style::default().fg(body_colour)));
     }
-    for raw in m.content.lines() {
-        lines.push(Line::styled(format!("  {raw}"), Style::default().fg(body_colour)));
+    for raw in wrapped_lines(&m.content, inner) {
+        lines.push(Line::styled(
+            format!("{indent}{raw}"),
+            Style::default().fg(body_colour),
+        ));
     }
     lines.push(Line::from(""));
 }
 
 // render a tool card with a ⚡ prefix and yellow colouring.
-fn render_tool_card(lines: &mut Vec<Line<'_>>, m: &TuiMessage) {
+fn render_tool_card(lines: &mut Vec<Line<'_>>, m: &TuiMessage, width: usize) {
     let style = Style::default().fg(Color::Yellow);
     lines.push(Line::from(vec![
         Span::styled("⚡ ", Style::default().fg(Color::Yellow)),
@@ -1124,11 +1162,13 @@ fn render_tool_card(lines: &mut Vec<Line<'_>>, m: &TuiMessage) {
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
         ),
     ]));
+    let inner = width.saturating_sub(2).max(1);
+    let indent = "  ";
     if m.content.is_empty() {
-        lines.push(Line::styled("  —", style));
+        lines.push(Line::styled(format!("{indent}—"), style));
     }
-    for raw in m.content.lines() {
-        lines.push(Line::styled(format!("  {raw}"), style));
+    for raw in wrapped_lines(&m.content, inner) {
+        lines.push(Line::styled(format!("{indent}{raw}"), style));
     }
     lines.push(Line::from(""));
 }

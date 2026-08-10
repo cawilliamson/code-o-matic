@@ -160,6 +160,68 @@ impl History {
             self.messages.truncate(idx);
         }
     }
+
+    /// estimate the token size of the request `to_request` would produce.
+    ///
+    /// rough heuristic of 1 token per 4 characters, matching the rest of the
+    /// codebase. includes the system prompt, tool schemas, message content
+    /// and tool-call arguments so the figure reflects what is actually sent.
+    pub fn estimated_request_tokens(&self, schemas: &[serde_json::Value]) -> usize {
+        let schemas_chars =
+            serde_json::to_string(schemas).map(|s| s.chars().count()).unwrap_or(0);
+        let sys_chars =
+            self.system_prompt.as_deref().map(|s| s.chars().count()).unwrap_or(0);
+        let body_chars: usize = self
+            .messages
+            .iter()
+            .map(|m| {
+                let args: usize = m
+                    .tool_calls
+                    .iter()
+                    .map(|tc| {
+                        serde_json::to_string(&tc)
+                            .map(|s| s.chars().count())
+                            .unwrap_or(0)
+                    })
+                    .sum();
+                m.content.chars().count() + args
+            })
+            .sum();
+        (schemas_chars + sys_chars + body_chars) / 4
+    }
+
+    /// drop the oldest turns until the estimated request fits `budget_tokens`.
+    ///
+    /// only whole turns (user plus assistant plus tool results) are removed
+    /// so tool results keep their matching tool-call ids. returns the number
+    /// of message entries dropped.
+    pub fn prune_for_context(
+        &mut self,
+        schemas: &[serde_json::Value],
+        budget_tokens: usize,
+    ) -> usize {
+        let mut dropped = 0;
+        loop {
+            if self.estimated_request_tokens(schemas) <= budget_tokens {
+                break;
+            }
+            let Some(start) = self.messages.iter().position(|m| m.role == Role::User) else {
+                break;
+            };
+            // a turn runs from this user message up to (not including) the next.
+            let end = self.messages[start + 1..]
+                .iter()
+                .position(|m| m.role == Role::User)
+                .map(|i| start + 1 + i)
+                .unwrap_or(self.messages.len());
+            if end == start {
+                break;
+            }
+            self.messages.drain(start..end);
+            dropped += end - start;
+        }
+        dropped
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -173,4 +235,62 @@ pub struct LlmRequest {
 pub struct LlmResponse {
     pub content: String,
     pub tool_calls: Vec<ToolCall>,
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::tools::ToolCall;
+
+    fn history_with_turns(turns: usize, fill: usize) -> History {
+        let mut h = History::new(20);
+        h.set_system_prompt("sys".repeat(fill));
+        for i in 0..turns {
+            h.append_user(format!("user turn {i} {}", "u".repeat(fill)));
+            h.append_assistant_with_tools(
+                format!("assistant {i} {} ", "a".repeat(fill)),
+                vec![ToolCall {
+                    id: format!("c{i}"),
+                    name: "bash".to_string(),
+                    arguments: serde_json::json!({"command": format!("ll {i} {}", "x".repeat(fill))}),
+                }],
+            );
+            h.append_tool_result(format!("c{i}"), format!("out {i} {}", "o".repeat(fill)));
+        }
+        h
+    }
+
+    #[test]
+    fn prune_drops_oldest_turns_to_fit_budget() {
+        let mut h = history_with_turns(50, 1000);
+        let schemas: Vec<serde_json::Value> = Vec::new();
+        let before = h.messages.len();
+        let before_tokens = h.estimated_request_tokens(&schemas);
+        assert!(before_tokens > 1_000);
+        let dropped = h.prune_for_context(&schemas, 1_000);
+        // then: oldest turns were removed and the estimate now fits
+        assert!(dropped > 0);
+        assert!(h.estimated_request_tokens(&schemas) <= 1_000);
+        assert!(h.messages.len() < before);
+    }
+
+    #[test]
+    fn estimate_counts_system_and_tool_payloads() {
+        let mut h = History::new(20);
+        h.set_system_prompt("s".repeat(400));
+        h.append_user("u".repeat(400));
+        h.append_assistant_with_tools(
+            String::new(),
+            vec![ToolCall {
+                id: "c".into(),
+                name: "bash".to_string(),
+                arguments: serde_json::json!({"command":"pwd"}),
+            }],
+        );
+        h.append_tool_result("c".to_string(), "o".repeat(400));
+        let schemas: Vec<serde_json::Value> = Vec::new();
+        // then: system prompt, content and tool result are all counted
+        assert!(h.estimated_request_tokens(&schemas) >= 300);
+    }
 }
