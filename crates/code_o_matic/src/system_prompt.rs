@@ -51,6 +51,9 @@ pub(crate) fn default_system_prompt(tools: &ToolRegistry, repo_root: &Path) -> S
     let core = format!(
         "you are Code-o-matic (com), a minimal rust-native coding agent. you operate inside the \
          repo at {repo_root}. all file access is jailed to the repo root. be terse and direct.\n\n\
+         for discovery use the glob tool, not `bash ls`. read AGENTS.md and SOUL.md at the repo \
+         root if present; then inspect only files relevant to the current task — do not dump the \
+         whole tree.\n\n\
          available tools:\n{tool_docs_str}",
         tool_docs_str = tool_docs_str,
         repo_root = repo_root.display(),
@@ -88,8 +91,8 @@ mod tests {
     fn ignores_missing_context_files() {
         let tmp = tempfile::tempdir().unwrap();
         let prompt = default_system_prompt(&ToolRegistry::new(), tmp.path());
-        assert!(!prompt.contains("AGENTS.md"));
-        assert!(!prompt.contains("SOUL.md"));
+        assert!(!prompt.contains("project instructions (AGENTS.md):"));
+        assert!(!prompt.contains("personality (SOUL.md):"));
         assert!(prompt.contains("Code-o-matic"));
     }
 }
