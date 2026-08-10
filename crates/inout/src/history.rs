@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use inout_core::tools::ToolCall;
+use crate::tools::ToolCall;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Message {

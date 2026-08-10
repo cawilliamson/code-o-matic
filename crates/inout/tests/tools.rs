@@ -3,7 +3,7 @@
 
 mod support;
 
-use inout_core::extension::ExtensionApi;
+use inout::extension::ExtensionApi;
 use inout_testing::{scenario, then, when};
 use serde_json::json;
 use support::{call, registered, tmp_config};
@@ -14,7 +14,7 @@ async fn read_tool_reads_file_slice() {
     let (_dir, config) = tmp_config();
     std::fs::write(config.repo_root.join("sample.txt"), "line1\nline2\nline3\n").unwrap();
     let mut api = ExtensionApi::noop();
-    inout_core::register_builtins(&mut api, &config);
+    inout::register_builtins(&mut api, &config);
     when!(s, "read is dispatched with an offset and limit", {
         let result =
             api.tools.dispatch_call(&call("read", json!({"path":"sample.txt","offset":2,"limit":1})))
@@ -43,7 +43,7 @@ async fn write_tool_writes_file() {
     let mut s = scenario!("builtins", "builtin tools", "write creates a file");
     let (_dir, config) = tmp_config();
     let mut api = ExtensionApi::noop();
-    inout_core::register_builtins(&mut api, &config);
+    inout::register_builtins(&mut api, &config);
     when!(s, "write is dispatched with path and content", {
         let result =
             api.tools.dispatch_call(&call("write", json!({"path":"out.txt","content":"hello"})))
@@ -64,7 +64,7 @@ async fn edit_tool_replaces_first_occurrence() {
     let _ = dir;
     std::fs::write(config.repo_root.join("f.txt"), "foo bar foo").unwrap();
     let mut api = ExtensionApi::noop();
-    inout_core::register_builtins(&mut api, &config);
+    inout::register_builtins(&mut api, &config);
     when!(s, "edit is dispatched with a single-match old_string", {
         let result = api
             .tools
@@ -85,7 +85,7 @@ async fn edit_tool_old_string_not_found_errors() {
     let (_dir, config) = tmp_config();
     std::fs::write(config.repo_root.join("f.txt"), "hello").unwrap();
     let mut api = ExtensionApi::noop();
-    inout_core::register_builtins(&mut api, &config);
+    inout::register_builtins(&mut api, &config);
     when!(s, "edit is dispatched with an absent old_string", {
         let err = api
             .tools
@@ -104,7 +104,7 @@ async fn grep_tool_filters_matching_lines() {
     let (_dir, config) = tmp_config();
     std::fs::write(config.repo_root.join("f.txt"), "apple\nbanana\napricot\n").unwrap();
     let mut api = ExtensionApi::noop();
-    inout_core::register_builtins(&mut api, &config);
+    inout::register_builtins(&mut api, &config);
     when!(s, "grep is dispatched with a case-sensitive pattern", {
         let result =
             api.tools.dispatch_call(&call("grep", json!({"path":"f.txt","pattern":"ap"})))
@@ -125,7 +125,7 @@ async fn glob_tool_lists_matching_files() {
     std::fs::create_dir_all(config.repo_root.join("sub")).unwrap();
     std::fs::write(config.repo_root.join("sub").join("c.txt"), "").unwrap();
     let mut api = ExtensionApi::noop();
-    inout_core::register_builtins(&mut api, &config);
+    inout::register_builtins(&mut api, &config);
     when!(s, "glob is dispatched with a txt pattern", {
         let result =
             api.tools.dispatch_call(&call("glob", json!({"path":"","pattern":"*.txt"})))

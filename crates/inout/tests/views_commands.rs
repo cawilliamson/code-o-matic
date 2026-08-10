@@ -23,13 +23,13 @@ fn context_view_builds_spec() {
         "max_turns": 20
     });
     when!(s, "build_view runs over a conversation snapshot", {
-        let spec = inout_core::build_view(builder, &snapshot).expect("view builds");
+        let spec = inout::build_view(builder, &snapshot).expect("view builds");
         then!(s, "the spec has two turns with tool blocks", {
             assert_eq!(spec.turns.len(), 2);
             assert!(spec.turns[0].preview.contains("hello"));
             let second = spec.turns[1].blocks.iter().collect::<Vec<_>>();
-            assert!(second.iter().any(|b| matches!(b, inout_core::extension::ViewBlock::ToolCall { name, .. } if name == "read")));
-            assert!(second.iter().any(|b| matches!(b, inout_core::extension::ViewBlock::ToolResult { tool_name, .. } if tool_name == "read")));
+            assert!(second.iter().any(|b| matches!(b, inout::extension::ViewBlock::ToolCall { name, .. } if name == "read")));
+            assert!(second.iter().any(|b| matches!(b, inout::extension::ViewBlock::ToolResult { tool_name, .. } if tool_name == "read")));
         });
     });
 }
@@ -51,7 +51,7 @@ fn commands_register_core_slash_commands() {
 fn commands_clear_returns_clear_action() {
     let mut s = scenario!("builtins", "builtin commands", "clear returns a clear action");
     let (_dir, api) = registered();
-    let ctx = inout_core::CommandContext {
+    let ctx = inout::CommandContext {
         model: "test".into(),
         system_prompt: String::new(),
         args: String::new(),
@@ -61,7 +61,7 @@ fn commands_clear_returns_clear_action() {
         let result = api.commands.dispatch("clear", &ctx).expect("dispatch clear");
         then!(s, "history is cleared", {
             assert_eq!(result.message, "history cleared");
-            assert!(matches!(result.action, Some(inout_core::CommandAction::ClearHistory)));
+            assert!(matches!(result.action, Some(inout::CommandAction::ClearHistory)));
         });
     });
 }

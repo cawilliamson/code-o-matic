@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use inout::llm::LlmClient;
 use inout::{llm, tui, Agent};
-use inout_core::config::Config;
+use inout::config::Config;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -56,7 +56,7 @@ async fn run_stream(agent: &mut Agent, prompt: String) -> Result<()> {
         let req = agent.history.to_request(&agent.config.model, &agent.tools.schemas());
         let mut rx = agent.llm.complete_stream(req).await?;
         let mut content = String::new();
-        let mut tool_calls: Vec<inout_core::tools::ToolCall> = Vec::new();
+        let mut tool_calls: Vec<inout::tools::ToolCall> = Vec::new();
         while let Some(evt) = rx.recv().await {
             match evt {
                 llm::StreamEvent::Content(delta) => {

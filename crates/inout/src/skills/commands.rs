@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
-use inout_core::extension::{Command, CommandContext, CommandHandler, CommandResult, ExtensionApi};
+use crate::extension::{Command, CommandContext, CommandHandler, CommandResult, ExtensionApi};
 
 use crate::skills::loader::{load_all_skills, skill_dirs};
 use crate::skills::scope::detect_domain_scope;

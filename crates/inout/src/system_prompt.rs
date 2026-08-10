@@ -1,6 +1,6 @@
 //! system prompt built from the registered tool schemas.
 
-use inout_core::tools::ToolRegistry;
+use crate::tools::ToolRegistry;
 
 /// build the default system prompt describing the available tools.
 pub(crate) fn default_system_prompt(tools: &ToolRegistry, repo_root: &std::path::Path) -> String {

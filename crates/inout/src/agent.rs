@@ -3,9 +3,9 @@
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
-use inout_core::config::Config;
-use inout_core::extension::ExtensionApi;
-use inout_core::tools::ToolRegistry;
+use crate::config::Config;
+use crate::extension::ExtensionApi;
+use crate::tools::ToolRegistry;
 
 use crate::history::History;
 use crate::llm::LlmClient;
@@ -24,9 +24,9 @@ pub struct Agent {
     /// registered tools.
     pub tools: ToolRegistry,
     /// registered tui views built by extensions.
-    pub views: inout_core::ViewRegistry,
+    pub views: crate::ViewRegistry,
     /// registered slash commands built by extensions.
-    pub commands: inout_core::CommandRegistry,
+    pub commands: crate::CommandRegistry,
     /// whether extensions have been loaded.
     pub extensions_loaded: bool,
 }
@@ -39,8 +39,8 @@ impl Agent {
         let max_turns = config.max_turns;
 
         let tools = ToolRegistry::new();
-        let views = inout_core::ViewRegistry::new();
-        let commands = inout_core::CommandRegistry::new();
+        let views = crate::ViewRegistry::new();
+        let commands = crate::CommandRegistry::new();
         let prompt = std::env::var("IO_SYSTEM_PROMPT")
             .unwrap_or_else(|_| super::system_prompt::default_system_prompt(&tools, &repo_root));
         let mut history = History::new(max_turns);
@@ -74,8 +74,8 @@ impl Agent {
     /// load all first-party extensions, invoking `observe` for each
     /// `extension_loaded:{name}` event emitted by the loader.
     pub fn load_extensions_with(&mut self, observe: Arc<dyn Fn(String) + Send + Sync>) {
-        let before = Arc::new(|_: &inout_core::LlmRequest| {})
-            as Arc<dyn Fn(&inout_core::LlmRequest) + Send + Sync>;
+        let before = Arc::new(|_: &crate::LlmRequest| {})
+            as Arc<dyn Fn(&crate::LlmRequest) + Send + Sync>;
         let mut api = ExtensionApi {
             tools: std::mem::take(&mut self.tools),
             views: std::mem::take(&mut self.views),
@@ -83,7 +83,7 @@ impl Agent {
             observe,
             before_provider_payload: before,
         };
-        inout_core::register_builtins(&mut api, &self.config);
+        crate::register_builtins(&mut api, &self.config);
 
         // register the optional subsystems. their commands/views/tools
         // override builtin ones on name conflict.
@@ -108,14 +108,14 @@ impl Agent {
     /// build a tui view by name by invoking the registered builder with a
     /// conversation snapshot. returns `None` if no view with that name is
     /// registered or the builder errors.
-    pub fn build_view(&self, name: &str) -> Option<inout_core::ViewSpec> {
+    pub fn build_view(&self, name: &str) -> Option<crate::ViewSpec> {
         let builder = self.views.get(name)?;
         let snapshot = self.build_conversation_snapshot();
-        inout_core::build_view(builder, &snapshot).ok()
+        crate::build_view(builder, &snapshot).ok()
     }
 
     /// build the context-viewer spec. shorthand for `build_view("context")`.
-    pub fn build_context_view(&self) -> Option<inout_core::ViewSpec> {
+    pub fn build_context_view(&self) -> Option<crate::ViewSpec> {
         self.build_view("context")
     }
 

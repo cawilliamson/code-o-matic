@@ -1,9 +1,9 @@
 #![allow(missing_docs)]
 #![allow(clippy::unwrap_used)]
 
-use inout_core::jail::{resolve, Jail, JailError};
-use inout_core::tools::{Tool, ToolError, ToolRegistry};
-use inout_core::types::PermissionClass;
+use inout::jail::{resolve, Jail, JailError};
+use inout::tools::{Tool, ToolError, ToolRegistry};
+use inout::types::PermissionClass;
 use inout_testing::{scenario, then, when};
 use serde_json::{json, Value};
 

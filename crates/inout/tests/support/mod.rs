@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 //! shared test helpers for the builtin integration suite.
 
-use inout_core::config::Config;
-use inout_core::extension::ExtensionApi;
-use inout_core::tools::ToolCall;
+use inout::config::Config;
+use inout::extension::ExtensionApi;
+use inout::tools::ToolCall;
 use serde_json::Value;
 
 pub fn tmp_config() -> (tempfile::TempDir, Config) {
@@ -15,7 +15,7 @@ pub fn tmp_config() -> (tempfile::TempDir, Config) {
 pub fn registered() -> (tempfile::TempDir, ExtensionApi) {
     let (_dir, config) = tmp_config();
     let mut api = ExtensionApi::noop();
-    inout_core::register_builtins(&mut api, &config);
+    inout::register_builtins(&mut api, &config);
     (_dir, api)
 }
 

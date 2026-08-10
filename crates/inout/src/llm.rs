@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 use crate::history::{LlmRequest, LlmResponse};
-use inout_core::tools::ToolCall;
+use crate::tools::ToolCall;
 
 #[async_trait]
 pub trait LlmClient: Send + Sync {

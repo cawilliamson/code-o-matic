@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use inout_core::extension::{Command, CommandContext, CommandHandler, CommandResult, ExtensionApi};
+use crate::extension::{Command, CommandContext, CommandHandler, CommandResult, ExtensionApi};
 
 use crate::sessions::compaction::{compact, CompactionSettings};
 use crate::sessions::jsonl_repo::JsonlSessionRepo;

@@ -15,7 +15,7 @@ pub mod trigger;
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
-use inout_core::extension::ExtensionApi;
+use crate::extension::ExtensionApi;
 
 use self::commands::{register_skill_commands, CommandState};
 use self::loader::load_all_skills;

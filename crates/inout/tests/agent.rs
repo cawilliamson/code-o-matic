@@ -4,8 +4,8 @@
 use inout::history::LlmResponse;
 use inout::llm::{LlmClient, ReplayLlmClient};
 use inout::Agent;
-use inout_core::config::Config;
-use inout_core::tools::ToolCall;
+use inout::config::Config;
+use inout::tools::ToolCall;
 use inout_testing::{scenario, then, when};
 use serde_json::json;
 
@@ -77,7 +77,7 @@ async fn agent_rejects_jail_escape_via_tool() {
 }
 #[test]
 fn agent_has_default_system_prompt() {
-    use inout_core::config::Config;
+    use inout::config::Config;
     let mut s = scenario!("core", "Minimal configuration", "Config loads required fields");
     let dir = std::env::temp_dir();
     let cfg = Config { repo_root: dir.clone(), ..Config::default() };
@@ -98,7 +98,7 @@ fn agent_has_default_system_prompt() {
 
 #[test]
 fn agent_system_prompt_in_request() {
-    use inout_core::config::Config;
+    use inout::config::Config;
     let mut s = scenario!("core", "Minimal configuration", "Config loads required fields");
     let dir = std::env::temp_dir();
     let cfg = Config { repo_root: dir, ..Config::default() };

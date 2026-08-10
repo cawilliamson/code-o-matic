@@ -11,7 +11,7 @@ pub mod repo;
 
 use std::sync::Arc;
 
-use inout_core::extension::ExtensionApi;
+use crate::extension::ExtensionApi;
 
 use self::commands::{register_session_commands, CommandState};
 use self::compaction::CompactionSettings;

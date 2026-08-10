@@ -726,7 +726,6 @@ dependencies = [
  "chrono",
  "crossterm",
  "futures",
- "inout-core",
  "inout-testing",
  "ratatui",
  "reqwest",
@@ -739,20 +738,6 @@ dependencies = [
  "tokio",
  "uuid",
  "walkdir",
-]
-
-[[package]]
-name = "inout-core"
-version = "0.3.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "inout-testing",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
 ]
 
 [[package]]

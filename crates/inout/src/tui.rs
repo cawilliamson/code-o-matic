@@ -24,9 +24,9 @@ use tokio::time::Duration;
 use crate::history::Role;
 use crate::llm::{LlmClient, StreamEvent};
 use crate::Agent;
-use inout_core::config::Config;
-use inout_core::tools::ToolCall;
-use inout_core::{CommandAction, CommandContext, ViewBlock, ViewSpec};
+use crate::config::Config;
+use crate::tools::ToolCall;
+use crate::{CommandAction, CommandContext, ViewBlock, ViewSpec};
 
 // events from the background streaming task to the UI loop
 enum UiEvent {
