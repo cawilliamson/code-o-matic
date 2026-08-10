@@ -47,7 +47,10 @@ impl ContinuityFiles {
     ///
     /// this implementation does not call an llm; it extracts next steps from
     /// the provided session summary directly.
-    pub async fn write_handoff(&self, session: &crate::sessions::repo::SessionContext) -> Result<()> {
+    pub async fn write_handoff(
+        &self,
+        session: &crate::sessions::repo::SessionContext,
+    ) -> Result<()> {
         tokio::fs::create_dir_all(self.context.parent().expect("context has parent"))
             .await
             .context("create .inout directory")?;
@@ -165,7 +168,8 @@ fn extract_files(content: &str) -> Vec<String> {
 }
 
 fn next_steps_from_messages(messages: &[crate::sessions::repo::MessageContext]) -> Vec<String> {
-    let recent: Vec<&crate::sessions::repo::MessageContext> = messages.iter().rev().take(10).collect();
+    let recent: Vec<&crate::sessions::repo::MessageContext> =
+        messages.iter().rev().take(10).collect();
     let mut steps = Vec::new();
 
     for m in &recent {
@@ -197,16 +201,11 @@ fn next_steps_from_messages(messages: &[crate::sessions::repo::MessageContext]) 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use inout_testing::{scenario, then, when};
+
     use super::*;
 
     #[tokio::test]
     async fn write_handoff_round_trip() {
-        let mut s = scenario!(
-            "sessions",
-            "Continuity handoff writes context.md",
-            "Write handoff"
-        );
         let tmp = tempfile::tempdir().unwrap();
         let files = ContinuityFiles::new(tmp.path());
         let session = crate::sessions::repo::SessionContext {
@@ -227,33 +226,24 @@ mod tests {
             ..crate::sessions::repo::SessionContext::default()
         };
 
-        when!(s, "write_handoff is called with a multi-message session", {
-            files.write_handoff(&session).await.unwrap();
-            let loaded = files.load_handoff().await.unwrap();
-            then!(s, "the handoff goal, touched files, and next steps are populated", {
-                assert!(!loaded.goal.is_empty());
-                assert_eq!(loaded.files.len(), 2);
-                assert_eq!(loaded.next_steps.len(), 1);
-            });
-        });
+        // when: write_handoff is called with a multi-message session
+        files.write_handoff(&session).await.unwrap();
+        let loaded = files.load_handoff().await.unwrap();
+        // then: the handoff goal, touched files, and next steps are populated
+        assert!(!loaded.goal.is_empty());
+        assert_eq!(loaded.files.len(), 2);
+        assert_eq!(loaded.next_steps.len(), 1);
     }
 
     #[tokio::test]
     async fn session_log_appends_entry() {
-        let mut s = scenario!(
-            "sessions",
-            "Continuity handoff loads on demand",
-            "Continuity files are read lazily"
-        );
         let tmp = tempfile::tempdir().unwrap();
         let files = ContinuityFiles::new(tmp.path());
-        when!(s, "write_session_log_entry appends a goal and touched files", {
-            files.write_session_log_entry("refactor auth", &["src/auth.rs".to_string()]).await.unwrap();
-            let content = tokio::fs::read_to_string(&files.session_log).await.unwrap();
-            then!(s, "the session log contains the goal and the file path", {
-                assert!(content.contains("refactor auth"));
-                assert!(content.contains("src/auth.rs"));
-            });
-        });
+        // when: write_session_log_entry appends a goal and touched files
+        files.write_session_log_entry("refactor auth", &["src/auth.rs".to_string()]).await.unwrap();
+        let content = tokio::fs::read_to_string(&files.session_log).await.unwrap();
+        // then: the session log contains the goal and the file path
+        assert!(content.contains("refactor auth"));
+        assert!(content.contains("src/auth.rs"));
     }
 }

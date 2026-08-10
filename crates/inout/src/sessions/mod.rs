@@ -37,22 +37,19 @@ pub fn register(api: &mut ExtensionApi) {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use inout_testing::{scenario, then, when};
+
     use super::*;
 
     #[tokio::test(flavor = "multi_thread")]
     async fn extension_registers_commands() {
-        let mut s = scenario!("extensions", "Command registry surface is defined", "Command registers and dispatches");
         let mut api = ExtensionApi::noop();
-        when!(s, "the sessions subsystem is registered", {
-            register(&mut api);
-            let names = api.commands.names();
-            then!(s, "the session, branch, switch, and compact commands are registered", {
-                assert!(names.contains(&"sessions".to_string()));
-                assert!(names.contains(&"branch".to_string()));
-                assert!(names.contains(&"switch".to_string()));
-                assert!(names.contains(&"compact".to_string()));
-            });
-        });
+        // when: the sessions subsystem is registered
+        register(&mut api);
+        let names = api.commands.names();
+        // then: the session, branch, switch, and compact commands are registered
+        assert!(names.contains(&"sessions".to_string()));
+        assert!(names.contains(&"branch".to_string()));
+        assert!(names.contains(&"switch".to_string()));
+        assert!(names.contains(&"compact".to_string()));
     }
 }

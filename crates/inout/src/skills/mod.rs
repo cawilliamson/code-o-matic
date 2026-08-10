@@ -39,18 +39,15 @@ pub fn register(api: &mut ExtensionApi) {
 
 #[cfg(test)]
 mod tests {
-    use inout_testing::{scenario, then, when};
+
     use super::*;
 
     #[test]
     fn skills_registers_commands() {
-        let mut s = scenario!("extensions", "Rust extension can register multiple surface items", "Single extension registers tool, command, and hook");
         let mut api = ExtensionApi::noop();
-        when!(s, "the skills subsystem is registered", {
-            register(&mut api);
-            then!(s, "slash commands are registered", {
-                assert!(!api.commands.names().is_empty());
-            });
-        });
+        // when: the skills subsystem is registered
+        register(&mut api);
+        // then: slash commands are registered
+        assert!(!api.commands.names().is_empty());
     }
 }

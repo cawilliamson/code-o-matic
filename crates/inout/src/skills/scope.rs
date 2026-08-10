@@ -63,26 +63,19 @@ pub fn detect_from_extensions(skills: &[Skill]) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use inout_testing::{scenario, then, when};
+
     use super::*;
 
     #[test]
     fn cargo_toml_maps_to_rust_domain() {
-        let mut s = scenario!(
-            "skills",
-            "Stack auto-detection populates domain scope",
-            "Cargo.toml maps to rust domain"
-        );
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("Cargo.toml"), "[package]\n").unwrap();
         let cwd = std::env::current_dir().unwrap();
         std::env::set_current_dir(dir.path()).unwrap();
-        when!(s, "stack detection runs", {
-            let scope = detect_domain_scope();
-            std::env::set_current_dir(cwd).unwrap();
-            then!(s, "the domain scope includes rust", {
-                assert!(scope.contains(&String::from("rust")));
-            });
-        });
+        // when: stack detection runs
+        let scope = detect_domain_scope();
+        std::env::set_current_dir(cwd).unwrap();
+        // then: the domain scope includes rust
+        assert!(scope.contains(&String::from("rust")));
     }
 }

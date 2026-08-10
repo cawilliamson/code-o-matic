@@ -1,7 +1,6 @@
 [workspace]
 members = [
     "crates/inout",
-    "crates/inout-testing",
 ]
 resolver = "2"
 
