@@ -1,6 +1,6 @@
 //! bdd scenario harness for inout.
 //!
-//! each test binds to an openspec requirement and named scenario. on panic the
+//! each test binds to a named scenario. on panic the
 //! scenario header is printed to stderr before the panic propagates, so test
 //! failures carry their spec provenance. steps (`given!`, `when!`, `then!`)
 //! are sugar that logs the step label and nothing more -- the real assertion

@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license = "MIT"
-description = "bdd scenario harness tying rust tests to openspec requirements"
+description = "bdd scenario harness for inout integration tests"
 
 [lib]
 name = "inout_testing"
