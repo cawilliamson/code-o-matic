@@ -329,10 +329,10 @@ impl TuiAgent {
 
         let area = f.area();
         let chunks = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Min(3),
-            Constraint::Length(1),
             Constraint::Length(3),
+            Constraint::Min(3),
+            Constraint::Length(2),
+            Constraint::Length(4),
             Constraint::Length(1),
         ])
         .split(area);
@@ -346,9 +346,11 @@ impl TuiAgent {
 
     fn draw_header_bar(&self, f: &mut Frame<'_>, area: Rect) {
         let sep = Span::styled(" │ ", Style::default().fg(Color::DarkGray));
-        let header = Line::from(vec![
-            Span::styled("◆ ", Style::default().fg(Color::Cyan)),
-            Span::styled(self.model_name.clone(), Style::default().fg(Color::Cyan)),
+        let status = Line::from(vec![
+            Span::styled(
+                self.model_name.clone(),
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            ),
             sep.clone(),
             Span::styled(self.cached_cwd.clone(), Style::default().fg(Color::White)),
             sep.clone(),
@@ -358,37 +360,42 @@ impl TuiAgent {
             ),
             sep.clone(),
             Span::styled(
-                format!("{}", self.cached_context_pct),
+                format!("{}% ctx", self.cached_context_pct),
                 Style::default().fg(Color::White),
             ),
-            Span::styled("%", Style::default().fg(Color::DarkGray)),
         ]);
-        let bar = Paragraph::new(Text::from(vec![header]))
-            .style(Style::default().bg(Color::Black))
-            .alignment(Alignment::Left);
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray))
+            .title(Line::from(vec![
+                Span::styled("◆ ", Style::default().fg(Color::Cyan)),
+                Span::styled(
+                    "code-o-matic",
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                ),
+            ]));
+
+        let bar = Paragraph::new(status).block(block).alignment(Alignment::Right);
         f.render_widget(bar, area);
     }
 
     fn draw_chat_area(&self, f: &mut Frame<'_>, area: Rect) {
         let mut lines: Vec<Line<'_>> = Vec::new();
-        let width = area.width as usize;
 
         for m in &self.messages {
-            render_message(&mut lines, m, &self.model_name, width);
+            render_message(&mut lines, m, &self.model_name);
         }
 
         // reasoning line above the streaming answer while busy
         if self.busy && !self.reasoning.is_empty() && self.reasoning_visible {
             let spinner = thinking_spinner();
-            let reason = format!("{spinner} reasoning… {}", self.reasoning);
-            lines.push(Line::from(""));
             lines.push(Line::styled(
-                reason,
+                format!("{spinner} thinking… {}", self.reasoning),
                 Style::default()
                     .fg(Color::DarkGray)
-                    .bg(Color::Black)
                     .add_modifier(Modifier::ITALIC),
             ));
+            lines.push(Line::from(""));
         }
 
         // live streaming text
@@ -401,27 +408,33 @@ impl TuiAgent {
                 &mut lines,
                 &TuiMessage { role: Role::Assistant, content: text },
                 &self.model_name,
-                width,
             );
         }
 
         // thinking indicator before any content arrives
         if self.busy && self.streaming.is_empty() && self.reasoning.is_empty() {
             let spinner = thinking_spinner();
-            lines.push(Line::from(""));
             lines.push(Line::styled(
-                format!("  {spinner} thinking…"),
-                Style::default().fg(Color::DarkGray).bg(Color::Black),
+                format!("{spinner} thinking…"),
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::ITALIC),
             ));
+            lines.push(Line::from(""));
         }
 
         let total = lines.len();
-        let height = area.height as usize;
+        let height = (area.height.saturating_sub(2)) as usize;
         let max_scroll = total.saturating_sub(height).min(u16::MAX as usize) as u16;
         let scroll = if self.follow_bottom { max_scroll } else { self.chat_scroll.min(max_scroll) };
 
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray))
+            .title(Span::styled(" conversation ", Style::default().fg(Color::DarkGray)));
+
         let chat = Paragraph::new(lines)
-            .style(Style::default().fg(Color::White).bg(Color::Black))
+            .block(block)
             .wrap(Wrap { trim: false })
             .scroll((scroll, 0));
         f.render_widget(chat, area);
@@ -435,7 +448,7 @@ impl TuiAgent {
                 .end_symbol(None);
             f.render_stateful_widget(
                 scrollbar,
-                area.inner(Margin { vertical: 0, horizontal: 0 }),
+                area.inner(Margin { vertical: 1, horizontal: 1 }),
                 &mut state,
             );
         }
@@ -460,24 +473,17 @@ impl TuiAgent {
     }
 
     fn draw_input_area(&self, f: &mut Frame<'_>, area: Rect) {
-        let input_text = format!("> {}", self.input);
-        let mut text = input_text.clone();
-        if self.cursor_visible {
-            text.push('▋');
-        }
-
-        let chunks = Layout::vertical([Constraint::Length(1), Constraint::Length(2)]).split(area);
-        let input = Paragraph::new(Text::from(vec![Line::from(vec![
-            Span::styled("> ", Style::default().fg(Color::Cyan)),
+        let mut prompt = vec![
+            Span::styled(
+                "> ",
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            ),
             Span::styled(self.input.clone(), Style::default().fg(Color::White)),
-            if self.cursor_visible {
-                Span::styled("▋", Style::default().fg(Color::Cyan))
-            } else {
-                Span::styled("", Style::default())
-            },
-        ])]))
-        .style(Style::default().bg(Color::Black));
-        f.render_widget(input, chunks[0]);
+        ];
+        if self.cursor_visible {
+            prompt.push(Span::styled("▋", Style::default().fg(Color::Cyan)));
+        }
+        let mut text_lines = vec![Line::from(prompt)];
 
         // slash command autocomplete
         if let Some(prefix) = self.slash_prefix() {
@@ -495,14 +501,19 @@ impl TuiAgent {
                         }
                     })
                     .collect();
-                let line = Line::styled(
+                text_lines.push(Line::styled(
                     visible.join("").trim_end().to_string(),
-                    Style::default().fg(Color::DarkGray).bg(Color::Black),
-                );
-                let para = Paragraph::new(Text::from(vec![line]));
-                f.render_widget(para, chunks[1]);
+                    Style::default().fg(Color::DarkGray),
+                ));
             }
         }
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray))
+            .title(Span::styled(" input ", Style::default().fg(Color::DarkGray)));
+        let para = Paragraph::new(Text::from(text_lines)).block(block);
+        f.render_widget(para, area);
     }
 
     fn draw_footer_bar(&self, f: &mut Frame<'_>, area: Rect) {
@@ -514,7 +525,7 @@ impl TuiAgent {
             sep.clone(),
             Span::styled("/help commands", Style::default().fg(Color::White)),
             sep.clone(),
-            Span::styled("r toggle reasoning", Style::default().fg(Color::White)),
+            Span::styled("ctrl+r reasoning", Style::default().fg(Color::White)),
             sep.clone(),
             Span::styled(format!("${}", self.last_cost()), Style::default().fg(Color::White)),
             sep,
@@ -835,7 +846,7 @@ impl TuiAgent {
                     self.follow_bottom = false;
                     self.chat_scroll = 0;
                 }
-                KeyCode::Char('r') if !self.busy => {
+                KeyCode::Char('r') if !self.busy && k.modifiers.contains(KeyModifiers::CONTROL) => {
                     self.reasoning_visible = !self.reasoning_visible;
                 }
                 KeyCode::Char(c) if !self.busy && !k.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -1079,93 +1090,45 @@ async fn run_turn_inner(
 
 // render a message with a left-border accent, role label, and indented continuation.
 // width is the available inner width of the chat area. lines are pushed into `lines`.
-fn render_message(lines: &mut Vec<Line<'_>>, m: &TuiMessage, model_name: &str, width: usize) {
-    let (colour, label, prefix) = match m.role {
-        Role::User => (Color::Cyan, "you".to_string(), " · "),
-        Role::Assistant => (Color::Blue, model_name.to_string(), " · "),
-        Role::Tool => {
-            // tool messages already include `name → preview` from the streaming path
-            return render_tool_card(lines, m, width);
-        }
-        Role::System => (Color::DarkGray, "sys".to_string(), " "),
+fn render_message(lines: &mut Vec<Line<'_>>, m: &TuiMessage, model_name: &str) {
+    let (label_colour, body_colour, label) = match m.role {
+        Role::User => (Color::Cyan, Color::Cyan, "you".to_string()),
+        Role::Assistant => (Color::LightBlue, Color::White, model_name.to_string()),
+        Role::Tool => return render_tool_card(lines, m),
+        Role::System => (Color::DarkGray, Color::DarkGray, "sys".to_string()),
     };
 
-    let style = Style::default().fg(colour).bg(Color::Black);
-    let mut first = true;
-    for raw in m.content.lines() {
-        if raw.is_empty() {
-            lines.push(Line::styled(
-                format!("│{:<width$}", "", width = width.saturating_sub(1)),
-                style,
-            ));
-            continue;
-        }
-        // manual char-boundary-respecting wrap
-        let mut start = 0;
-        let bytes = raw.as_bytes();
-        while start < bytes.len() {
-            let end = (start + width.saturating_sub(1)).min(bytes.len());
-            let mut e = end;
-            while e > start && !raw.is_char_boundary(e) {
-                e -= 1;
-            }
-            if e == start {
-                e = end;
-            }
-            let chunk = &raw[start..e];
-            if first {
-                let head = format!("│ {label}{prefix}{chunk}");
-                lines.push(Line::styled(head, style));
-                first = false;
-            } else {
-                let indent = label.chars().count() + prefix.chars().count() + 3;
-                lines.push(Line::styled(
-                    format!(
-                        "│{}{:remaining$}",
-                        " ".repeat(indent),
-                        chunk,
-                        remaining = width.saturating_sub(indent)
-                    ),
-                    style,
-                ));
-            }
-            start = e;
-        }
-    }
+    lines.push(Line::from(vec![
+        Span::styled("▌ ", Style::default().fg(label_colour)),
+        Span::styled(
+            label,
+            Style::default().fg(label_colour).add_modifier(Modifier::BOLD),
+        ),
+    ]));
     if m.content.is_empty() {
-        lines.push(Line::styled(format!("│ {label}{prefix}"), style));
+        lines.push(Line::styled("  —", Style::default().fg(body_colour)));
+    }
+    for raw in m.content.lines() {
+        lines.push(Line::styled(format!("  {raw}"), Style::default().fg(body_colour)));
     }
     lines.push(Line::from(""));
 }
 
-// render a tool card on a single line with a ⚡ prefix and yellow left border.
-fn render_tool_card(lines: &mut Vec<Line<'_>>, m: &TuiMessage, width: usize) {
-    let style = Style::default().fg(Color::Yellow).bg(Color::Black);
-    let prefix = "│ ⚡ ";
-    let prefix_len = prefix.chars().count();
-    let text = m.content.clone();
-    let mut start = 0;
-    let bytes = text.as_bytes();
-    let inner = width.saturating_sub(prefix_len);
-    let mut first = true;
-    while start < bytes.len() {
-        let end = (start + inner).min(bytes.len());
-        let mut e = end;
-        while e > start && !text.is_char_boundary(e) {
-            e -= 1;
-        }
-        if e == start {
-            e = end;
-        }
-        let chunk = &text[start..e];
-        lines.push(Line::styled(format!("{}{}", prefix, chunk), style));
-        if first {
-            first = false;
-        }
-        start = e;
+// render a tool card with a ⚡ prefix and yellow colouring.
+fn render_tool_card(lines: &mut Vec<Line<'_>>, m: &TuiMessage) {
+    let style = Style::default().fg(Color::Yellow);
+    lines.push(Line::from(vec![
+        Span::styled("⚡ ", Style::default().fg(Color::Yellow)),
+        Span::styled(
+            "tool",
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        ),
+    ]));
+    if m.content.is_empty() {
+        lines.push(Line::styled("  —", style));
     }
-    if text.is_empty() {
-        lines.push(Line::styled(format!("{}…", prefix), style));
+    for raw in m.content.lines() {
+        lines.push(Line::styled(format!("  {raw}"), style));
     }
     lines.push(Line::from(""));
 }
