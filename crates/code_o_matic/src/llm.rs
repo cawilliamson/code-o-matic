@@ -106,9 +106,9 @@ pub struct HttpLlmClient {
 
 impl HttpLlmClient {
     pub async fn from_env() -> anyhow::Result<Self> {
-        let api_key = std::env::var("COM_API_KEY")
-            .map_err(|_| anyhow::anyhow!("COM_API_KEY not set"))?;
-        let base_url = std::env::var("COM_BASE_URL")
+        let api_key = std::env::var("TWOBOBS_API_KEY")
+            .map_err(|_| anyhow::anyhow!("TWOBOBS_API_KEY not set"))?;
+        let base_url = std::env::var("TWOBOBS_BASE_URL")
             .unwrap_or_else(|_| DEFAULT_BASE_URL.to_string());
         let client = reqwest::Client::new();
         let rates =

@@ -16,11 +16,12 @@ use code_o_matic::config::Config;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let model = std::env::var("IO_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string());
-    let repo_root = std::env::var("IO_REPO_ROOT").unwrap_or_else(|_| ".".to_string());
+    let model = std::env::var("COM_MODEL")
+        .unwrap_or_else(|_| "deepseek-v4-flash-abliterated".to_string());
+    let repo_root = std::env::var("COM_REPO_ROOT").unwrap_or_else(|_| ".".to_string());
     let config = Config {
         repo_root: PathBuf::from(repo_root).canonicalize()?,
-        llm_provider: String::from("llmgateway"),
+        llm_provider: String::from("twobobs"),
         model,
         ..Config::default()
     };
