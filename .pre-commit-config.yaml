@@ -1,0 +1,20 @@
+# pre-commit hooks for the inout agent.
+#
+# Currently only clippy is wired up: it is the one linter available on this
+# machine (`cargo fmt`/rustfmt and `cargo-deny` are not installed here).
+#
+#   cargo fmt -- --check     # add when rustfmt is installed
+#   cargo deny check         # add when cargo-deny is installed (see deny.toml)
+#
+# Run manually with `pre-commit run --all-files`, or install the git hook with
+# `pre-commit install`.
+repos:
+  - repo: local
+    hooks:
+      - id: clippy
+        name: clippy
+        description: lint the rust workspace
+        entry: cargo clippy --workspace --all-targets
+        language: system
+        pass_filenames: false
+        types: [rust]
