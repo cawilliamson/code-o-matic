@@ -49,7 +49,7 @@ pub enum StreamEvent {
     Error(String),
 }
 
-const DEFAULT_BASE_URL: &str = "https://api.llmgateway.io/v1";
+const DEFAULT_BASE_URL: &str = "https://twobobs.chrisaw.io/v1";
 
 #[derive(Clone, Debug, Default)]
 pub struct ModelRates {
@@ -106,14 +106,16 @@ pub struct HttpLlmClient {
 
 impl HttpLlmClient {
     pub async fn from_env() -> anyhow::Result<Self> {
-        let api_key = std::env::var("LLMGATEWAY_API_KEY")
-            .map_err(|_| anyhow::anyhow!("LLMGATEWAY_API_KEY not set"))?;
+        let api_key = std::env::var("COM_API_KEY")
+            .map_err(|_| anyhow::anyhow!("COM_API_KEY not set"))?;
+        let base_url = std::env::var("COM_BASE_URL")
+            .unwrap_or_else(|_| DEFAULT_BASE_URL.to_string());
         let client = reqwest::Client::new();
         let rates =
-            fetch_model_rates(&client, DEFAULT_BASE_URL, &api_key).await.unwrap_or_default();
+            fetch_model_rates(&client, &base_url, &api_key).await.unwrap_or_default();
         Ok(Self {
             api_key,
-            base_url: DEFAULT_BASE_URL.to_string(),
+            base_url,
             client,
             rates,
             last_cost: std::sync::Arc::new(std::sync::Mutex::new(None)),
