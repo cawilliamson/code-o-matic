@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license = "MIT"
-description = "inout agent core substrate: loop, types, registries, hook bus, extension loader"
+description = "inout agent core substrate: loop, types, registries, hook bus, builtins"
 
 [lib]
 name = "inout_core"
@@ -16,8 +16,7 @@ anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1"
-tokio = { version = "1", features = ["rt", "macros", "sync", "fs", "process", "time"] }
-rhai = { version = "1", features = ["sync"] }
+tokio = { version = "1", features = ["rt", "macros", "sync", "fs", "process", "time", "io-util"] }
 
 [dev-dependencies]
 tempfile = "3"

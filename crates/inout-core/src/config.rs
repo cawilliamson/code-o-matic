@@ -19,10 +19,6 @@ pub struct Config {
     pub bash: BashConfig,
     /// whether to emit trace/spans to the observability bus.
     pub observability: bool,
-    /// rhai scripting policy.
-    pub scripts: ScriptConfig,
-    /// additional directories to scan for `.rhai` extensions.
-    pub extension_paths: Vec<PathBuf>,
 }
 
 impl Default for Config {
@@ -34,21 +30,8 @@ impl Default for Config {
             max_turns: 20,
             bash: BashConfig::default(),
             observability: false,
-            scripts: ScriptConfig::default(),
-            extension_paths: Vec::new(),
         }
     }
-}
-
-/// rhai scripting policy.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct ScriptConfig {
-    /// allow scripts to write files.
-    pub allow_write: bool,
-    /// allow scripts to run shell commands.
-    pub allow_shell: bool,
-    /// allow scripts to make network requests.
-    pub allow_network: bool,
 }
 
 /// bash tool policy.

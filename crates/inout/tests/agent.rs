@@ -9,17 +9,9 @@ use inout_core::tools::ToolCall;
 use inout_testing::{scenario, then, when};
 use serde_json::json;
 
-fn ensure_extensions_dir() {
-    std::env::set_var(
-        "IO_EXTENSIONS_DIR",
-        format!("{}/../../extensions", env!("CARGO_MANIFEST_DIR")),
-    );
-}
-
 #[tokio::test]
 async fn agent_dispatches_read_tool_then_responds() {
     let mut s = scenario!("core", "Agent loop full turn", "Full turn with tool use");
-    ensure_extensions_dir();
     let tmp = tempfile::TempDir::new().unwrap();
     let repo = tmp.path().to_path_buf();
     std::fs::write(repo.join("hello.txt"), "world").unwrap();
@@ -56,7 +48,6 @@ async fn agent_dispatches_read_tool_then_responds() {
 #[tokio::test]
 async fn agent_rejects_jail_escape_via_tool() {
     let mut s = scenario!("security", "Jail path confinement", "Agent tool call escapes are rejected");
-    ensure_extensions_dir();
     let tmp = tempfile::TempDir::new().unwrap();
     let repo = tmp.path().to_path_buf();
 
@@ -81,6 +72,46 @@ async fn agent_rejects_jail_escape_via_tool() {
         then!(s, "the tool error surfaces in history and the agent still completes", {
             assert_eq!(reply, "could not read");
             assert!(agent.history.messages[2].content.starts_with("error:"));
+        });
+    });
+}
+#[test]
+fn agent_has_default_system_prompt() {
+    use inout_core::config::Config;
+    let mut s = scenario!("core", "Minimal configuration", "Config loads required fields");
+    let dir = std::env::temp_dir();
+    let cfg = Config { repo_root: dir.clone(), ..Config::default() };
+    let llm: Box<dyn LlmClient> = Box::new(ReplayLlmClient::new(vec![]));
+    let mut agent = Agent::new(cfg, llm);
+    agent.load_extensions();
+    when!(s, "an agent is constructed and extensions are loaded", {
+        assert!(agent.history.system_prompt.is_some());
+        let prompt = agent.history.system_prompt.as_ref().unwrap();
+        then!(s, "the default system prompt mentions inout and the core tools", {
+            assert!(prompt.contains("InOut"));
+            assert!(prompt.contains("read"));
+            assert!(prompt.contains("write"));
+            assert!(prompt.contains("bash"));
+        });
+    });
+}
+
+#[test]
+fn agent_system_prompt_in_request() {
+    use inout_core::config::Config;
+    let mut s = scenario!("core", "Minimal configuration", "Config loads required fields");
+    let dir = std::env::temp_dir();
+    let cfg = Config { repo_root: dir, ..Config::default() };
+    let llm: Box<dyn LlmClient> = Box::new(ReplayLlmClient::new(vec![]));
+    let mut agent = Agent::new(cfg, llm);
+    agent.load_extensions();
+    agent.history.append_user("hi".to_string());
+    when!(s, "to_request is called on an agent with a loaded system prompt", {
+        let req = agent.history.to_request("m", &[]);
+        then!(s, "the system prompt is the first message and the user message follows", {
+            assert_eq!(req.messages.len(), 2);
+            assert!(req.messages[0].content.contains("InOut"));
+            assert_eq!(req.messages[1].role, inout::history::Role::User);
         });
     });
 }
