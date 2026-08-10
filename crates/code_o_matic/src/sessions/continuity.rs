@@ -6,11 +6,9 @@ use anyhow::{Context, Result};
 use chrono::Local;
 use tokio::io::AsyncWriteExt;
 
-/// paths to the four continuity files.
+/// paths to the three continuity files.
 #[derive(Debug, Clone)]
 pub struct ContinuityFiles {
-    /// project overview file.
-    pub com_md: PathBuf,
     /// project understanding file.
     pub understanding: PathBuf,
     /// last-session handoff file.
@@ -36,7 +34,6 @@ impl ContinuityFiles {
         let root = project_root.as_ref().to_path_buf();
         let dot_com = root.join(".com");
         Self {
-            com_md: root.join("COM.md"),
             understanding: dot_com.join("understanding.md"),
             context: dot_com.join("context.md"),
             session_log: dot_com.join("session_log.md"),
