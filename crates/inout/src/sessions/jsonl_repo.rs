@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use tokio::fs::{self, OpenOptions};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-use crate::entry::{EntryBase, SessionEntry};
-use crate::repo::{
+use crate::sessions::entry::{EntryBase, SessionEntry};
+use crate::sessions::repo::{
     ForkOptions, ListOptions, MessageContext, NavigateTreeResult, SessionContext, SessionInfo,
     SessionMetadata, SessionRepo,
 };
@@ -36,7 +36,7 @@ impl JsonlSessionRepo {
         let (entries, leaf_id) = if journal.exists() {
             load_journal(&journal).await?
         } else {
-            let root = SessionEntry::Leaf(crate::entry::LeafEntry {
+            let root = SessionEntry::Leaf(crate::sessions::entry::LeafEntry {
                 base: EntryBase { id: uuid(), parent_id: None, timestamp: now() },
                 leaf_id: String::new(),
             });
@@ -60,7 +60,7 @@ impl JsonlSessionRepo {
         let (entries, leaf_id) = if journal.exists() {
             load_journal_blocking(&journal)?
         } else {
-            let root = SessionEntry::Leaf(crate::entry::LeafEntry {
+            let root = SessionEntry::Leaf(crate::sessions::entry::LeafEntry {
                 base: EntryBase { id: uuid(), parent_id: None, timestamp: now() },
                 leaf_id: String::new(),
             });
@@ -125,7 +125,7 @@ impl SessionRepo for JsonlSessionRepo {
         if is_message {
             // messages become the new tip; persist via a leaf marker.
             let tip_id = id.clone();
-            let marker = SessionEntry::Leaf(crate::entry::LeafEntry {
+            let marker = SessionEntry::Leaf(crate::sessions::entry::LeafEntry {
                 base: EntryBase { id: uuid(), parent_id: Some(tip_id.clone()), timestamp: now() },
                 leaf_id: tip_id,
             });
@@ -154,7 +154,7 @@ impl SessionRepo for JsonlSessionRepo {
             }
         }
 
-        let branch = SessionEntry::BranchSummary(crate::entry::BranchSummaryEntry {
+        let branch = SessionEntry::BranchSummary(crate::sessions::entry::BranchSummaryEntry {
             base: EntryBase {
                 id: uuid(),
                 parent_id: Some(target_id.to_string()),
@@ -165,7 +165,7 @@ impl SessionRepo for JsonlSessionRepo {
         });
         self.append_entry(branch).await?;
 
-        let new_leaf = SessionEntry::Leaf(crate::entry::LeafEntry {
+        let new_leaf = SessionEntry::Leaf(crate::sessions::entry::LeafEntry {
             base: EntryBase {
                 id: uuid(),
                 parent_id: Some(target_id.to_string()),
@@ -281,7 +281,7 @@ impl SessionRepo for JsonlSessionRepo {
             *leaf_id = target_id.to_string();
         }
 
-        let marker = SessionEntry::Leaf(crate::entry::LeafEntry {
+        let marker = SessionEntry::Leaf(crate::sessions::entry::LeafEntry {
             base: EntryBase {
                 id: uuid(),
                 parent_id: Some(target_id.to_string()),
@@ -375,7 +375,7 @@ async fn load_journal(journal: &Path) -> Result<(HashMap<String, SessionEntry>, 
         if let Some(SessionEntry::Message(m)) = entries.get(&id) {
             if let Some(parent) = &m.base.parent_id {
                 if !entries.contains_key(parent) {
-                    let marker = SessionEntry::Leaf(crate::entry::LeafEntry {
+                    let marker = SessionEntry::Leaf(crate::sessions::entry::LeafEntry {
                         base: EntryBase { id: parent.clone(), parent_id: None, timestamp: 0 },
                         leaf_id: parent.clone(),
                     });
@@ -422,7 +422,7 @@ fn load_journal_blocking(journal: &Path) -> Result<(HashMap<String, SessionEntry
         if let Some(SessionEntry::Message(m)) = entries.get(&id) {
             if let Some(parent) = &m.base.parent_id {
                 if !entries.contains_key(parent) {
-                    let marker = SessionEntry::Leaf(crate::entry::LeafEntry {
+                    let marker = SessionEntry::Leaf(crate::sessions::entry::LeafEntry {
                         base: EntryBase { id: parent.clone(), parent_id: None, timestamp: 0 },
                         leaf_id: parent.clone(),
                     });
@@ -456,7 +456,7 @@ fn append_to_journal_blocking(journal: &Path, entry: &SessionEntry) -> Result<()
 #[allow(clippy::unwrap_used)]
 mod tests {
     use inout_testing::{scenario, then, when};
-    use crate::entry::MessageEntry;
+    use crate::sessions::entry::MessageEntry;
     use super::*;
 
     fn message(parent_id: Option<String>, role: &str, content: &str) -> SessionEntry {

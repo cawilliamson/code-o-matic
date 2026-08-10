@@ -85,12 +85,12 @@ impl Agent {
         };
         inout_core::register_builtins(&mut api, &self.config);
 
-        // register compiled first-party extensions; their commands/views/tools
+        // register the optional subsystems. their commands/views/tools
         // override builtin ones on name conflict.
-        for ext in super::extensions::compiled_extensions() {
-            (api.observe)(format!("extension_loaded:{}", ext.name()));
-            ext.register(&mut api);
-        }
+        #[cfg(feature = "sessions")]
+        crate::sessions::register(&mut api);
+        #[cfg(feature = "skills")]
+        crate::skills::register(&mut api);
 
         self.tools = api.tools;
         self.views = api.views;

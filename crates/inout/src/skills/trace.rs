@@ -2,7 +2,7 @@
 
 use serde::Serialize;
 
-use crate::skill::Skill;
+use crate::skills::skill::Skill;
 
 /// one entry in the skill trace.
 #[derive(Debug, Clone, Serialize)]
@@ -61,8 +61,8 @@ mod tests {
         Skill {
             name: String::from(name),
             description: String::new(),
-            category: crate::skill::SkillCategory::Practice,
-            source: crate::skill::SkillSource::Bundled,
+            category: crate::skills::skill::SkillCategory::Practice,
+            source: crate::skills::skill::SkillSource::Bundled,
             triggers: Vec::new(),
             priority: 0,
             token_estimate: 0,

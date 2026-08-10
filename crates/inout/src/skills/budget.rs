@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use crate::skill::Skill;
+use crate::skills::skill::Skill;
 
 /// rank skills and truncate to fit `budget_tokens`. pinned skills are always
 /// kept and do not count toward the budget.
@@ -96,11 +96,11 @@ mod tests {
     use inout_testing::{scenario, then, when};
     use super::*;
 
-    fn skill(name: &str, priority: i32, tokens: usize, source: crate::skill::SkillSource) -> Skill {
+    fn skill(name: &str, priority: i32, tokens: usize, source: crate::skills::skill::SkillSource) -> Skill {
         Skill {
             name: String::from(name),
             description: String::new(),
-            category: crate::skill::SkillCategory::Core,
+            category: crate::skills::skill::SkillCategory::Core,
             source,
             triggers: Vec::new(),
             priority,
@@ -117,9 +117,9 @@ mod tests {
             "Skill budget ranking and truncation",
             "Low-priority skill dropped first"
         );
-        let a = skill("a", 0, 100, crate::skill::SkillSource::Bundled);
-        let b = skill("b", 0, 60, crate::skill::SkillSource::Bundled);
-        let c = skill("c", 0, 30, crate::skill::SkillSource::Bundled);
+        let a = skill("a", 0, 100, crate::skills::skill::SkillSource::Bundled);
+        let b = skill("b", 0, 60, crate::skills::skill::SkillSource::Bundled);
+        let c = skill("c", 0, 30, crate::skills::skill::SkillSource::Bundled);
 
         when!(s, "rank_and_truncate_skills runs with a 120-token budget", {
             let skills = rank_and_truncate_skills(vec![&a, &b, &c], 120, &HashSet::new());
@@ -138,8 +138,8 @@ mod tests {
             "Skill budget ranking and truncation",
             "Pinned skill is always kept"
         );
-        let a = skill("a", 0, 100, crate::skill::SkillSource::Bundled);
-        let b = skill("b", 0, 100, crate::skill::SkillSource::Bundled);
+        let a = skill("a", 0, 100, crate::skills::skill::SkillSource::Bundled);
+        let b = skill("b", 0, 100, crate::skills::skill::SkillSource::Bundled);
         let mut pinned = HashSet::new();
         pinned.insert(String::from("b"));
 
@@ -159,13 +159,13 @@ mod tests {
             "Skill budget ranking and truncation",
             "Higher source tier wins at equal priority"
         );
-        let bundled = skill("x", 5, 10, crate::skill::SkillSource::Bundled);
-        let project = skill("x", 5, 10, crate::skill::SkillSource::Project);
+        let bundled = skill("x", 5, 10, crate::skills::skill::SkillSource::Bundled);
+        let project = skill("x", 5, 10, crate::skills::skill::SkillSource::Project);
 
         when!(s, "rank_and_truncate_skills runs over a bundled and a project skill", {
             let skills = rank_and_truncate_skills(vec![&bundled, &project], 100, &HashSet::new());
             then!(s, "the project-tier skill outranks the bundled-tier skill", {
-                assert_eq!(skills[0].source, crate::skill::SkillSource::Project);
+                assert_eq!(skills[0].source, crate::skills::skill::SkillSource::Project);
             });
         });
     }
@@ -177,8 +177,8 @@ mod tests {
             "Always-on budget returns dropped skill names",
             "Budget exceeded reports dropped names"
         );
-        let a = skill("a", 0, 100, crate::skill::SkillSource::Bundled);
-        let b = skill("b", 0, 60, crate::skill::SkillSource::Bundled);
+        let a = skill("a", 0, 100, crate::skills::skill::SkillSource::Bundled);
+        let b = skill("b", 0, 60, crate::skills::skill::SkillSource::Bundled);
 
         when!(s, "build_always_on_prompt_budgeted runs with an 80-token budget", {
             let (_, _tokens, dropped) = build_always_on_prompt_budgeted(&[&a, &b], 80);

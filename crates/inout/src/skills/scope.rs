@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use crate::skill::Skill;
+use crate::skills::skill::Skill;
 
 /// manifest files and the skill names they imply.
 const STACK_MANIFESTS: &[(&str, &[&str])] = &[

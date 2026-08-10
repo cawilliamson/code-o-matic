@@ -723,20 +723,22 @@ version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "chrono",
  "crossterm",
  "futures",
  "inout-core",
- "inout-ext-sessions",
- "inout-ext-skills",
  "inout-testing",
  "ratatui",
  "reqwest",
  "serde",
  "serde_json",
+ "serde_yaml",
  "sha2",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
+ "uuid",
+ "walkdir",
 ]
 
 [[package]]
@@ -751,36 +753,6 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
-]
-
-[[package]]
-name = "inout-ext-sessions"
-version = "0.3.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "inout-core",
- "inout-testing",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "inout-ext-skills"
-version = "0.3.0"
-dependencies = [
- "anyhow",
- "inout-core",
- "inout-testing",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "walkdir",
 ]
 
 [[package]]

@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use inout_core::extension::{Command, CommandContext, CommandHandler, CommandResult, ExtensionApi};
 
-use crate::compaction::{compact, CompactionSettings};
-use crate::jsonl_repo::JsonlSessionRepo;
-use crate::repo::{ForkOptions, ListOptions, SessionRepo};
+use crate::sessions::compaction::{compact, CompactionSettings};
+use crate::sessions::jsonl_repo::JsonlSessionRepo;
+use crate::sessions::repo::{ForkOptions, ListOptions, SessionRepo};
 
 /// shared state for session command handlers.
 #[derive(Clone, Debug)]

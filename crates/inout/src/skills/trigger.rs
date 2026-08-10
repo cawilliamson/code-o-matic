@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use crate::skill::{Skill, SkillCategory};
+use crate::skills::skill::{Skill, SkillCategory};
 
 /// check whether `trigger` matches inside `text`.
 ///
@@ -171,7 +171,7 @@ mod tests {
             name: String::from("rust"),
             description: String::new(),
             category: SkillCategory::Domain,
-            source: crate::skill::SkillSource::Bundled,
+            source: crate::skills::skill::SkillSource::Bundled,
             triggers: vec![String::from("rust")],
             priority: 0,
             token_estimate: 0,
@@ -182,7 +182,7 @@ mod tests {
             name: String::from("git"),
             description: String::new(),
             category: SkillCategory::Practice,
-            source: crate::skill::SkillSource::Bundled,
+            source: crate::skills::skill::SkillSource::Bundled,
             triggers: vec![String::from("git")],
             priority: 0,
             token_estimate: 0,

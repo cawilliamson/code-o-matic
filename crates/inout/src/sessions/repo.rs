@@ -4,7 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::entry::SessionEntry;
+use crate::sessions::entry::SessionEntry;
 
 /// options for forking a branch.
 #[derive(Debug, Clone, Serialize, Deserialize)]

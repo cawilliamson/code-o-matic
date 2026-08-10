@@ -54,10 +54,3 @@ impl ExtensionApi {
     }
 }
 
-/// every first-party extension implements this and is loaded by the binary.
-pub trait Extension: Send + Sync {
-    /// human-readable extension name.
-    fn name(&self) -> &str;
-    /// register capabilities against the api.
-    fn register(&self, api: &mut ExtensionApi);
-}

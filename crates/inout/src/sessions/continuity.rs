@@ -47,7 +47,7 @@ impl ContinuityFiles {
     ///
     /// this implementation does not call an llm; it extracts next steps from
     /// the provided session summary directly.
-    pub async fn write_handoff(&self, session: &crate::repo::SessionContext) -> Result<()> {
+    pub async fn write_handoff(&self, session: &crate::sessions::repo::SessionContext) -> Result<()> {
         tokio::fs::create_dir_all(self.context.parent().expect("context has parent"))
             .await
             .context("create .inout directory")?;
@@ -164,8 +164,8 @@ fn extract_files(content: &str) -> Vec<String> {
     files
 }
 
-fn next_steps_from_messages(messages: &[crate::repo::MessageContext]) -> Vec<String> {
-    let recent: Vec<&crate::repo::MessageContext> = messages.iter().rev().take(10).collect();
+fn next_steps_from_messages(messages: &[crate::sessions::repo::MessageContext]) -> Vec<String> {
+    let recent: Vec<&crate::sessions::repo::MessageContext> = messages.iter().rev().take(10).collect();
     let mut steps = Vec::new();
 
     for m in &recent {
@@ -209,22 +209,22 @@ mod tests {
         );
         let tmp = tempfile::tempdir().unwrap();
         let files = ContinuityFiles::new(tmp.path());
-        let session = crate::repo::SessionContext {
+        let session = crate::sessions::repo::SessionContext {
             messages: vec![
-                crate::repo::MessageContext {
+                crate::sessions::repo::MessageContext {
                     role: "user".to_string(),
                     content: "fix parser".to_string(),
                 },
-                crate::repo::MessageContext {
+                crate::sessions::repo::MessageContext {
                     role: "system".to_string(),
                     content: "touched src/parser.rs and src/lexer.rs".to_string(),
                 },
-                crate::repo::MessageContext {
+                crate::sessions::repo::MessageContext {
                     role: "assistant".to_string(),
                     content: "next we need to update tests".to_string(),
                 },
             ],
-            ..crate::repo::SessionContext::default()
+            ..crate::sessions::repo::SessionContext::default()
         };
 
         when!(s, "write_handoff is called with a multi-message session", {

@@ -6,11 +6,11 @@ use std::sync::{Arc, RwLock};
 
 use inout_core::extension::{Command, CommandContext, CommandHandler, CommandResult, ExtensionApi};
 
-use crate::loader::{load_all_skills, skill_dirs};
-use crate::scope::detect_domain_scope;
-use crate::skill::{Skill, SkillSource};
-use crate::trace::SkillTrace;
-use crate::trigger::match_skills_scoped;
+use crate::skills::loader::{load_all_skills, skill_dirs};
+use crate::skills::scope::detect_domain_scope;
+use crate::skills::skill::{Skill, SkillSource};
+use crate::skills::trace::SkillTrace;
+use crate::skills::trigger::match_skills_scoped;
 
 /// shared state for command handlers.
 #[derive(Clone, Debug, Default)]

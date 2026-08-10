@@ -7,9 +7,13 @@
 #![allow(missing_debug_implementations)]
 
 mod agent;
-mod extensions;
-mod system_prompt;
 
+#[cfg(feature = "sessions")]
+pub mod sessions;
+#[cfg(feature = "skills")]
+pub mod skills;
+
+pub mod system_prompt;
 pub mod history;
 pub mod llm;
 pub mod state;

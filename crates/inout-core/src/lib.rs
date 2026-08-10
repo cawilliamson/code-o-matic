@@ -16,7 +16,7 @@ pub use builtin::register_builtins;
 pub use config::{BashConfig, Config};
 pub use extension::{
     build_view, Command, CommandAction, CommandContext, CommandHandler, CommandRegistry,
-    CommandResult, Extension, ExtensionApi, ViewBlock, ViewBuilder, ViewRegistry, ViewSpec,
+    CommandResult, ExtensionApi, ViewBlock, ViewBuilder, ViewRegistry, ViewSpec,
     ViewTurn,
 };
 pub use hooks::HookBus;

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use walkdir::WalkDir;
 
-use crate::skill::{parse_skill_file, Skill, SkillSource};
+use crate::skills::skill::{parse_skill_file, Skill, SkillSource};
 
 /// markdown skill file extensions.
 const SKILL_EXTENSIONS: &[&str] = &[".md", ".skill.md"];

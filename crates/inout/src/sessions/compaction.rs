@@ -1,7 +1,7 @@
 //! session compaction: summarise older messages while keeping recent ones.
 
-use crate::entry::{CompactionEntry, EntryBase, SessionEntry};
-use crate::repo::SessionContext;
+use crate::sessions::entry::{CompactionEntry, EntryBase, SessionEntry};
+use crate::sessions::repo::SessionContext;
 
 /// settings controlling compaction behaviour.
 #[derive(Debug, Clone, Copy)]
@@ -74,7 +74,7 @@ pub fn compact(
     Ok((before, after, entry))
 }
 
-fn generate_summary(messages: &[crate::repo::MessageContext]) -> String {
+fn generate_summary(messages: &[crate::sessions::repo::MessageContext]) -> String {
     let roles: std::collections::HashSet<&str> = messages.iter().map(|m| m.role.as_str()).collect();
     let topics: Vec<String> = messages
         .iter()
@@ -117,7 +117,7 @@ mod tests {
         );
         let ctx = SessionContext {
             messages: (0..10)
-                .map(|i| crate::repo::MessageContext {
+                .map(|i| crate::sessions::repo::MessageContext {
                     role: "user".to_string(),
                     content: format!("msg {i}"),
                 })
@@ -142,7 +142,7 @@ mod tests {
         );
         let ctx = SessionContext {
             messages: (0..80)
-                .map(|i| crate::repo::MessageContext {
+                .map(|i| crate::sessions::repo::MessageContext {
                     role: if i % 2 == 0 { "user".to_string() } else { "assistant".to_string() },
                     content: format!("message number {i}"),
                 })
