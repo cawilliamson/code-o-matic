@@ -1,4 +1,4 @@
-# strict clippy configuration for inout
+# strict clippy configuration for code-o-matic
 type-complexity-threshold = 250
 cognitive-complexity-threshold = 30
 enum-variant-name-threshold = 10

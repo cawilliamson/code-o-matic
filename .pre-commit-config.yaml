@@ -1,4 +1,4 @@
-# pre-commit hooks for the inout agent.
+# pre-commit hooks for the code-o-matic agent.
 #
 # Currently only clippy is wired up: it is the one linter available on this
 # machine (`cargo fmt`/rustfmt and `cargo-deny` are not installed here).

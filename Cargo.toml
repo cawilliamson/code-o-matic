@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "crates/inout",
+    "crates/code_o_matic",
 ]
 resolver = "2"
 
