@@ -37,7 +37,7 @@ fn commands_register_core_slash_commands() {
     let (_dir, api) = registered();
     // when: registry is inspected
     // then: every core slash command is registered
-    for cmd in ["help", "clear", "new", "model", "undo", "exit", "context", "full"] {
+    for cmd in ["help", "clear", "new", "model", "undo", "quit", "context", "full"] {
         assert!(api.commands.get(cmd).is_some(), "/{cmd} should be registered");
     }
 }

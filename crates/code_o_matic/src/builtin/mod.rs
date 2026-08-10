@@ -36,7 +36,7 @@ pub fn register_builtins(api: &mut crate::registry::Registry, config: &Config) {
     let core_commands: [(&str, &str, CommandHandler); 8] = [
         ("help", "list available commands", native_command(|_| {
             CommandResult {
-                message: "commands: /help /clear /new /model /undo /exit /context /full"
+                message: "commands: /help /clear /new /model /undo /quit /context /full"
                     .into(),
                 action: None,
             }
@@ -70,7 +70,7 @@ pub fn register_builtins(api: &mut crate::registry::Registry, config: &Config) {
                 action: Some(CommandAction::UndoLastTurn),
             }
         })),
-        ("exit", "exit the agent", native_command(|_| {
+        ("quit", "exit the agent", native_command(|_| {
             CommandResult { message: "bye".into(), action: Some(CommandAction::Exit) }
         })),
         ("context", "open context viewer", native_command(|_| {
