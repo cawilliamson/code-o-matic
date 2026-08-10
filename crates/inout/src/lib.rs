@@ -22,6 +22,7 @@ pub mod skills;
 pub mod state;
 pub mod system_prompt;
 pub mod tools;
+#[cfg(feature = "tui")]
 pub mod tui;
 pub mod types;
 

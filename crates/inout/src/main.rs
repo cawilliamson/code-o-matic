@@ -9,7 +9,9 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use inout::llm::LlmClient;
-use inout::{llm, tui, Agent};
+use inout::{llm, Agent};
+#[cfg(feature = "tui")]
+use inout::tui;
 use inout::config::Config;
 
 #[tokio::main]
@@ -29,10 +31,17 @@ async fn main() -> Result<()> {
     let prompt_args: Vec<String> =
         args.iter().skip(1).filter(|a| !a.starts_with("--")).cloned().collect();
 
-    // default: launch TUI when no prompt given
+    // default: launch TUI when no prompt given and the tui is compiled in
     if prompt_args.is_empty() {
-        tui::run(config, llm).await?;
-        return Ok(());
+        #[cfg(feature = "tui")]
+        {
+            tui::run(config, llm).await?;
+            return Ok(());
+        }
+        #[cfg(not(feature = "tui"))]
+        {
+            return Ok(());
+        }
     }
 
     let mut agent = Agent::new(config, llm);
