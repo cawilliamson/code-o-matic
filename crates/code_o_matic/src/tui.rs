@@ -14,7 +14,7 @@ use ratatui::layout::{Alignment, Constraint, Layout, Margin, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{
-    Block, Borders, Gauge, List, ListItem, ListState, Padding, Paragraph, Scrollbar,
+    Block, Borders, List, ListItem, ListState, Padding, Paragraph, Scrollbar,
     ScrollbarOrientation, ScrollbarState, Wrap,
 };
 use ratatui::Frame;
@@ -34,6 +34,7 @@ enum UiEvent {
     Reasoning(String),
     RoundDone,
     ToolResult { name: String, preview: String },
+    Context,
     Status(String),
     Error(String),
     TurnDone,
@@ -65,6 +66,7 @@ pub struct TuiAgent {
     busy: bool,
     chat_scroll: u16,
     follow_bottom: bool,
+    last_max_scroll: usize,
     ui_rx: Option<mpsc::Receiver<UiEvent>>,
     model_name: String,
     context_viewer: Option<ContextViewerState>,
@@ -94,6 +96,7 @@ impl TuiAgent {
             busy: false,
             chat_scroll: 0,
             follow_bottom: true,
+            last_max_scroll: 0,
             ui_rx: None,
             model_name,
             context_viewer: None,
@@ -316,7 +319,7 @@ impl TuiAgent {
         Ok(())
     }
 
-    fn draw(&self, f: &mut Frame<'_>) {
+    fn draw(&mut self, f: &mut Frame<'_>) {
         if let Some(viewer) = &self.context_viewer {
             self.draw_context_viewer(f, viewer);
             return;
@@ -326,7 +329,7 @@ impl TuiAgent {
         let chunks = Layout::vertical([
             Constraint::Length(3),
             Constraint::Min(3),
-            Constraint::Length(2),
+            Constraint::Length(1),
             Constraint::Length(4),
             Constraint::Length(1),
         ])
@@ -353,11 +356,6 @@ impl TuiAgent {
                 format!("{} tools", self.cached_tool_count),
                 Style::default().fg(Color::White),
             ),
-            sep.clone(),
-            Span::styled(
-                format!("{}% ctx", self.cached_context_pct),
-                Style::default().fg(Color::White),
-            ),
         ]);
         let block = Block::default()
             .borders(Borders::ALL)
@@ -374,7 +372,7 @@ impl TuiAgent {
         f.render_widget(bar, area);
     }
 
-    fn draw_chat_area(&self, f: &mut Frame<'_>, area: Rect) {
+    fn draw_chat_area(&mut self, f: &mut Frame<'_>, area: Rect) {
         let mut lines: Vec<Line<'_>> = Vec::new();
         let width = area.width.saturating_sub(2) as usize;
 
@@ -427,6 +425,7 @@ impl TuiAgent {
         let total = lines.len();
         let height = (area.height.saturating_sub(2)) as usize;
         let max_scroll = total.saturating_sub(height).min(u16::MAX as usize) as u16;
+        self.last_max_scroll = max_scroll as usize;
         let scroll = if self.follow_bottom { max_scroll } else { self.chat_scroll.min(max_scroll) };
 
         let block = Block::default()
@@ -469,12 +468,31 @@ impl TuiAgent {
         } else {
             Color::Red
         };
-        let gauge = Gauge::default()
-            .block(Block::default().padding(Padding::horizontal(1)))
-            .gauge_style(Style::default().fg(colour).bg(Color::Black))
-            .ratio(ratio)
-            .label(format!("{total} / {limit} tokens ({pct}%)"));
-        f.render_widget(gauge, area);
+        let width = area.width.saturating_sub(2).max(1) as usize;
+        let fill = ((width as f64) * ratio).round() as usize;
+        let label = format!("{total} / {limit} tok ({pct}%)");
+
+        // one-line bar: filled cells carry the colour background, the rest black.
+        let mut spans: Vec<Span<'static>> = Vec::with_capacity(width);
+        for c in 0..width {
+            let bg = if c < fill { colour } else { Color::Black };
+            spans.push(Span::styled(" ", Style::default().bg(bg)));
+        }
+        // overlay the label centred; text flips to black where the fill covers it.
+        let pad = width.saturating_sub(label.chars().count()) / 2;
+        for (i, ch) in label.chars().enumerate() {
+            let c = pad + i;
+            if c >= width {
+                break;
+            }
+            let covered = c < fill;
+            let fg = if covered { Color::Black } else { Color::White };
+            let bg = if covered { colour } else { Color::Black };
+            spans[c] = Span::styled(ch.to_string(), Style::default().fg(fg).bg(bg));
+        }
+        let bar =
+            Paragraph::new(Line::from(spans)).block(Block::default().padding(Padding::horizontal(1)));
+        f.render_widget(bar, area);
     }
 
     fn draw_input_area(&self, f: &mut Frame<'_>, area: Rect) {
@@ -823,7 +841,10 @@ impl TuiAgent {
                 }
                 KeyCode::Down => {
                     self.chat_scroll = self.chat_scroll.saturating_add(1);
-                    // follow_bottom re-armed only via End / PageBottom; Down alone advances
+                    // reaching the bottom re-arms auto-follow so streamed output stays in view
+                    if self.chat_scroll as usize >= self.last_max_scroll {
+                        self.follow_bottom = true;
+                    }
                 }
                 KeyCode::PageUp => {
                     self.follow_bottom = false;
@@ -831,6 +852,9 @@ impl TuiAgent {
                 }
                 KeyCode::PageDown => {
                     self.chat_scroll = self.chat_scroll.saturating_add(10);
+                    if self.chat_scroll as usize >= self.last_max_scroll {
+                        self.follow_bottom = true;
+                    }
                 }
                 KeyCode::End => {
                     self.follow_bottom = true;
@@ -959,6 +983,9 @@ impl TuiAgent {
                         role: Role::Tool, content: format!("{name} → {preview}")
                     });
             }
+            UiEvent::Context => {
+                self.refresh_cache().await;
+            }
             UiEvent::Status(s) => {
                 self.status = s;
             }
@@ -1000,6 +1027,7 @@ async fn run_turn_inner(
         let mut a = agent.lock().await;
         a.history.append_user(prompt);
     }
+    let _ = tx.send(UiEvent::Context).await;
 
     loop {
         // prune if the request would exceed the context window, then build
@@ -1073,12 +1101,14 @@ async fn run_turn_inner(
         if tool_calls.is_empty() {
             let mut a = agent.lock().await;
             a.history.append_assistant_with_reasoning(content, reasoning, Vec::new());
+            let _ = tx.send(UiEvent::Context).await;
             return Ok(());
         }
         {
             let mut a = agent.lock().await;
             a.history.append_assistant_with_reasoning(content, reasoning, tool_calls.clone());
         }
+        let _ = tx.send(UiEvent::Context).await;
         for call in &tool_calls {
             let result = {
                 let a = agent.lock().await;
@@ -1088,6 +1118,7 @@ async fn run_turn_inner(
             let _ = tx.send(UiEvent::ToolResult { name: call.name.clone(), preview }).await;
             let mut a = agent.lock().await;
             a.history.append_tool_result(call.id.clone(), result);
+            let _ = tx.send(UiEvent::Context).await;
         }
     }
 }
