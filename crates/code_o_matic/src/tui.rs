@@ -19,7 +19,6 @@ use ratatui::widgets::{
 };
 use ratatui::Frame;
 use tokio::sync::{mpsc, Mutex};
-use tokio::time::Duration;
 
 use crate::history::Role;
 use crate::llm::{LlmClient, StreamEvent};
@@ -71,7 +70,6 @@ pub struct TuiAgent {
     model_name: String,
     context_viewer: Option<ContextViewerState>,
     reasoning_visible: bool,
-    cursor_visible: bool,
     slash_selection: usize,
     // cached values updated from async context — draw reads these instead of locking
     cached_cwd: String,
@@ -101,7 +99,6 @@ impl TuiAgent {
             model_name,
             context_viewer: None,
             reasoning_visible: true,
-            cursor_visible: true,
             slash_selection: 0,
             cached_cwd: cwd,
             cached_tool_count: 0,
@@ -292,8 +289,6 @@ impl TuiAgent {
             }
         }
         self.refresh_cache().await;
-        let mut ticker = tokio::time::interval(Duration::from_millis(120));
-        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {
             terminal.draw(|f| self.draw(f))?;
@@ -309,9 +304,6 @@ impl TuiAgent {
                     }
                 } => {
                     if !self.handle_ui_event(ui_evt).await? { break; }
-                }
-                _ = ticker.tick() => {
-                    self.cursor_visible = !self.cursor_visible;
                 }
             }
         }
@@ -396,13 +388,9 @@ impl TuiAgent {
 
         // live streaming text
         if self.busy && !self.streaming.is_empty() {
-            let mut text = self.streaming.clone();
-            if self.cursor_visible {
-                text.push('▋');
-            }
             render_message(
                 &mut lines,
-                &TuiMessage { role: Role::Assistant, content: text },
+                &TuiMessage { role: Role::Assistant, content: self.streaming.clone() },
                 &self.model_name,
                 width,
             );
@@ -496,16 +484,14 @@ impl TuiAgent {
     }
 
     fn draw_input_area(&self, f: &mut Frame<'_>, area: Rect) {
-        let mut prompt = vec![
+        let prompt = vec![
             Span::styled(
                 "> ",
                 Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
             ),
             Span::styled(self.input.clone(), Style::default().fg(Color::White)),
+            Span::styled("▏", Style::default().fg(Color::DarkGray)),
         ];
-        if self.cursor_visible {
-            prompt.push(Span::styled("▋", Style::default().fg(Color::Cyan)));
-        }
         let mut text_lines = vec![Line::from(prompt)];
 
         // slash command autocomplete
