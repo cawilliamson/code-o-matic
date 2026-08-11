@@ -1,10 +1,9 @@
-//! code-o-matic sessions: durable session trees, branching, compaction and continuity.
+//! code-o-matic sessions: durable session trees, branching and compaction.
 
 #![allow(missing_docs)]
 
 pub mod commands;
 pub mod compaction;
-pub mod continuity;
 pub mod entry;
 pub mod jsonl_repo;
 pub mod repo;

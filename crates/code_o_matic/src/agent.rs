@@ -1,24 +1,21 @@
-//! the agent: conversation loop, native tools, state machine.
+//! the agent: conversation loop, native tools.
 
 use std::sync::Arc;
 
-use anyhow::Result;
 use crate::config::Config;
 use crate::registry::Registry;
 use crate::tools::ToolRegistry;
+use anyhow::Result;
 
 use crate::history::History;
 use crate::llm::LlmClient;
-use crate::state::State;
 
-/// the agent: config, history, state machine, llm client, tool registry.
+/// the agent: config, history, llm client, tool registry.
 pub struct Agent {
     /// shared config.
     pub config: Arc<Config>,
     /// conversation history.
     pub history: History,
-    /// agent state machine.
-    pub state: State,
     /// llm provider client.
     pub llm: Box<dyn LlmClient>,
     /// registered tools.
@@ -42,19 +39,10 @@ impl Agent {
         let views = crate::ViewRegistry::new();
         let commands = crate::CommandRegistry::new();
         let prompt = std::env::var("COM_SYSTEM_PROMPT")
-            .unwrap_or_else(|_| super::system_prompt::default_system_prompt(&repo_root));
+            .unwrap_or_else(|_| super::system_prompt::default_system_prompt(&repo_root, &[]));
         let mut history = History::new(max_turns);
         history.set_system_prompt(prompt);
-        Self {
-            config: Arc::new(config),
-            history,
-            state: State::AwaitingUser,
-            llm,
-            tools,
-            views,
-            commands,
-            initialized: false,
-        }
+        Self { config: Arc::new(config), history, llm, tools, views, commands, initialized: false }
     }
 
     /// register all built-in subsystems against this agent.
@@ -81,10 +69,12 @@ impl Agent {
         self.views = api.views;
         self.commands = api.commands;
 
-        // rebuild system prompt now that tools are registered.
+        // rebuild system prompt now that tools are registered, so the usage
+        // guidelines reflect the active tool set.
         let repo_root = self.config.repo_root.clone();
+        let active: Vec<&str> = self.tools.active_names().iter().map(String::as_str).collect();
         let prompt = std::env::var("COM_SYSTEM_PROMPT")
-            .unwrap_or_else(|_| super::system_prompt::default_system_prompt(&repo_root));
+            .unwrap_or_else(|_| super::system_prompt::default_system_prompt(&repo_root, &active));
         self.history.set_system_prompt(prompt);
 
         self.initialized = true;
@@ -146,7 +136,6 @@ impl Agent {
 
     /// run a single user turn to completion, returning the final assistant text.
     pub async fn run_turn(&mut self, user_msg: String) -> Result<String> {
-        self.state = State::Thinking;
         self.history.append_user(user_msg);
 
         loop {
@@ -154,12 +143,10 @@ impl Agent {
             let resp = self.llm.complete(req).await?;
 
             if resp.tool_calls.is_empty() {
-                self.state = State::Responding;
                 self.history.append_assistant(resp.content.clone());
                 return Ok(resp.content);
             }
 
-            self.state = State::ToolRunning;
             self.history.append_assistant_with_tools(resp.content.clone(), resp.tool_calls.clone());
 
             for call in &resp.tool_calls {
@@ -167,8 +154,6 @@ impl Agent {
                     self.tools.dispatch_call(call).await.unwrap_or_else(|e| format!("error: {e}"));
                 self.history.append_tool_result(call.id.clone(), result);
             }
-
-            self.state = State::Thinking;
         }
     }
 }

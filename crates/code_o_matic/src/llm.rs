@@ -49,7 +49,53 @@ pub enum StreamEvent {
     Error(String),
 }
 
-const DEFAULT_BASE_URL: &str = "https://twobobs.chrisaw.io/v1";
+/// provider kinds this client can dial. each maps to its own env configuration
+/// and, for the twobobs gateway, a provider-specific model-rates endpoint.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProviderKind {
+    /// the chrisaw twobobs gateway (liteLLM-compatible /models pricing).
+    Twobobs,
+    /// any OpenAI-compatible endpoint.
+    OpenAi,
+}
+
+impl ProviderKind {
+    /// resolve a provider string to a kind.
+    pub fn from_provider(provider: &str) -> Option<Self> {
+        match provider.to_ascii_lowercase().as_str() {
+            "twobobs" => Some(Self::Twobobs),
+            "openai" => Some(Self::OpenAi),
+            _ => None,
+        }
+    }
+
+    fn api_key_env(&self) -> &'static str {
+        match self {
+            Self::Twobobs => "TWOBOBS_API_KEY",
+            Self::OpenAi => "OPENAI_API_KEY",
+        }
+    }
+
+    fn base_url_env(&self) -> &'static str {
+        match self {
+            Self::Twobobs => "TWOBOBS_BASE_URL",
+            Self::OpenAi => "OPENAI_BASE_URL",
+        }
+    }
+
+    fn default_base_url(&self) -> &'static str {
+        match self {
+            Self::Twobobs => "https://twobobs.chrisaw.io/v1",
+            Self::OpenAi => "https://api.openai.com/v1",
+        }
+    }
+
+    /// whether this provider exposes the gateway-specific rates endpoint; the
+    /// generic OpenAI surface does not, so rates stay unset (cost reports 0).
+    fn fetches_rates(&self) -> bool {
+        matches!(self, Self::Twobobs)
+    }
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct ModelRates {
@@ -105,14 +151,21 @@ pub struct HttpLlmClient {
 }
 
 impl HttpLlmClient {
-    pub async fn from_env() -> anyhow::Result<Self> {
-        let api_key = std::env::var("TWOBOBS_API_KEY")
-            .map_err(|_| anyhow::anyhow!("TWOBOBS_API_KEY not set"))?;
-        let base_url = std::env::var("TWOBOBS_BASE_URL")
-            .unwrap_or_else(|_| DEFAULT_BASE_URL.to_string());
+    /// construct a client for the named provider from its environment.
+    pub async fn from_provider(provider: &str) -> anyhow::Result<Self> {
+        let kind = ProviderKind::from_provider(provider).ok_or_else(|| {
+            anyhow::anyhow!("unknown llm provider '{provider}' (expected 'twobobs' or 'openai')")
+        })?;
+        let api_key = std::env::var(kind.api_key_env())
+            .map_err(|_| anyhow::anyhow!("{} not set", kind.api_key_env()))?;
+        let base_url =
+            std::env::var(kind.base_url_env()).unwrap_or_else(|_| kind.default_base_url().into());
         let client = reqwest::Client::new();
-        let rates =
-            fetch_model_rates(&client, &base_url, &api_key).await.unwrap_or_default();
+        let rates = if kind.fetches_rates() {
+            fetch_model_rates(&client, &base_url, &api_key).await.unwrap_or_default()
+        } else {
+            HashMap::new()
+        };
         Ok(Self {
             api_key,
             base_url,
@@ -650,5 +703,19 @@ mod tests {
             }
             other => panic!("expected DeltaTool, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn resolves_provider_kinds() {
+        assert_eq!(ProviderKind::from_provider("twobobs"), Some(ProviderKind::Twobobs));
+        assert_eq!(ProviderKind::from_provider("Twobobs"), Some(ProviderKind::Twobobs));
+        assert_eq!(ProviderKind::from_provider("openai"), Some(ProviderKind::OpenAi));
+        assert_eq!(ProviderKind::from_provider("windows"), None);
+    }
+
+    #[test]
+    fn openai_provider_does_not_fetch_gateway_rates() {
+        assert!(!ProviderKind::OpenAi.fetches_rates());
+        assert!(ProviderKind::Twobobs.fetches_rates());
     }
 }

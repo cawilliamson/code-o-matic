@@ -1,24 +1,26 @@
 [advisories]
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
-vulnerability = "deny"
-unmaintained = "warn"
+# cargo-deny v2 schema (0.20+): vulnerability/unsound/notice always error and
+# no longer take keys here; `unmaintained` is a scope selector, not a lint level.
+# fail on unmaintained *direct* dependencies, ignore transitive noise.
+unmaintained = "workspace"
 yanked = "deny"
-notice = "warn"
 
 [licenses]
-unlicensed = "deny"
+# v2 schema: unlicensed/copyleft/default keys removed — all licenses are denied
+# unless explicitly allowed below, which is the intent those keys expressed.
 allow = [
-    "MIT",
     "Apache-2.0",
-    "BSD-3-Clause",
     "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CDLA-Permissive-2.0",
     "ISC",
+    "MIT",
+    "Unicode-3.0",
     "Unicode-DFS-2016",
     "Zlib",
 ]
-copyleft = "deny"
-default = "deny"
 
 [bans]
 multiple-versions = "warn"

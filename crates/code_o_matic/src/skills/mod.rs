@@ -4,7 +4,6 @@
 #![allow(missing_docs)]
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
-pub mod budget;
 pub mod commands;
 pub mod loader;
 pub mod scope;

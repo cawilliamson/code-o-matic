@@ -3,8 +3,6 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use crate::skills::skill::Skill;
-
 /// manifest files and the skill names they imply.
 const STACK_MANIFESTS: &[(&str, &[&str])] = &[
     ("Cargo.toml", &["rust"]),
@@ -38,24 +36,6 @@ pub fn detect_domain_scope() -> Vec<String> {
         }
     }
 
-    let mut out: Vec<String> = seen.into_iter().collect();
-    out.sort();
-    out
-}
-
-/// detect additional domain names by inspecting which skills claim to handle
-/// known manifest files. this lets user-defined skills opt into stack detection.
-#[must_use]
-pub fn detect_from_extensions(skills: &[Skill]) -> Vec<String> {
-    let mut seen = HashSet::new();
-    for skill in skills {
-        for (file, _) in STACK_MANIFESTS {
-            let stem = skill.file_path.file_stem().map(|s| s.to_string_lossy());
-            if stem.as_deref() == Some(*file) {
-                seen.insert(skill.name.to_lowercase());
-            }
-        }
-    }
     let mut out: Vec<String> = seen.into_iter().collect();
     out.sort();
     out

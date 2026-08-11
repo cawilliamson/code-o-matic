@@ -28,10 +28,7 @@ pub fn skill_dirs(extra_dirs: &[PathBuf]) -> Vec<(PathBuf, SkillSource)> {
     }
     // project current working directory
     dirs.push((
-        std::env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join(".com")
-            .join("skills"),
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join(".com").join("skills"),
         SkillSource::Project,
     ));
 

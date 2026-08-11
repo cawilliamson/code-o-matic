@@ -72,4 +72,3 @@ async fn duplicate_active_tool_is_rejected() {
     // then: the call returns an invalid-args error
     assert!(matches!(err, ToolError::InvalidArgs(_)));
 }
-

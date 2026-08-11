@@ -35,9 +35,10 @@ impl Tool for BashTool {
     fn schema(&self) -> Value {
         json!({
             "name": "bash",
+            "description": "Execute a bash command in the repository root. Returns stdout and stderr. Output is truncated to the last 2000 lines or 50KB. Use for operations no dedicated tool covers (e.g. git, tests, builds, arbitrary shell).",
             "type": "object",
             "properties": {
-                "command": { "type": "string" }
+                "command": { "type": "string", "description": "shell command to execute" }
             },
             "required": ["command"]
         })

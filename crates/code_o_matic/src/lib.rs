@@ -11,14 +11,12 @@ mod agent;
 pub mod builtin;
 pub mod config;
 pub mod history;
-pub mod hooks;
 pub mod llm;
 pub mod registry;
 #[cfg(feature = "sessions")]
 pub mod sessions;
 #[cfg(feature = "skills")]
 pub mod skills;
-pub mod state;
 pub mod system_prompt;
 pub mod tools;
 #[cfg(feature = "tui")]
@@ -32,6 +30,5 @@ pub use registry::{
     build_view, Command, CommandAction, CommandContext, CommandHandler, CommandRegistry,
     CommandResult, Registry, ViewBlock, ViewBuilder, ViewRegistry, ViewSpec, ViewTurn,
 };
-pub use hooks::HookBus;
 pub use tools::{Tool, ToolCall, ToolError, ToolRegistry};
 pub use types::{ContentBlock, LlmRequest, LlmResponse, Message, PermissionClass, Role, Usage};

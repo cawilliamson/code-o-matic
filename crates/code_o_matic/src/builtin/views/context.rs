@@ -2,7 +2,7 @@
 
 use serde_json::Value;
 
-use crate::registry::{ViewBlock, ViewTurn, ViewSpec};
+use crate::registry::{ViewBlock, ViewSpec, ViewTurn};
 
 pub(super) fn build(snap: &Value) -> anyhow::Result<ViewSpec> {
     let messages = snap.get("messages").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -21,11 +21,7 @@ pub(super) fn build(snap: &Value) -> anyhow::Result<ViewSpec> {
 
     let mut turns = Vec::new();
     for (t, &start) in turn_starts.iter().enumerate() {
-        let end = if t + 1 < total_turns {
-            turn_starts[t + 1]
-        } else {
-            messages.len()
-        };
+        let end = if t + 1 < total_turns { turn_starts[t + 1] } else { messages.len() };
         let user_content = messages[start].get("content").and_then(Value::as_str).unwrap_or("");
         let tok = slice_chars(&messages, start, end) / 4;
         let blocks = build_blocks(&messages, start, end);
@@ -62,7 +58,9 @@ fn msg_chars(m: &Value) -> usize {
         .and_then(Value::as_array)
         .map(|arr| {
             arr.iter()
-                .map(|tc| tc.get("arguments_json").and_then(Value::as_str).map(str::len).unwrap_or(0))
+                .map(|tc| {
+                    tc.get("arguments_json").and_then(Value::as_str).map(str::len).unwrap_or(0)
+                })
                 .sum()
         })
         .unwrap_or(0);
@@ -110,7 +108,8 @@ fn build_blocks(messages: &[Value], start: usize, end: usize) -> Vec<ViewBlock> 
                 if let Some(tc) = m.get("tool_calls").and_then(Value::as_array) {
                     for item in tc {
                         let name = item.get("name").and_then(Value::as_str).unwrap_or("");
-                        let input = item.get("arguments_json").and_then(Value::as_str).unwrap_or("");
+                        let input =
+                            item.get("arguments_json").and_then(Value::as_str).unwrap_or("");
                         blocks.push(ViewBlock::ToolCall {
                             name: name.to_string(),
                             input_json: input.to_string(),

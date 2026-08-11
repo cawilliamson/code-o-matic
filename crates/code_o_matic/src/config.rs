@@ -35,8 +35,6 @@ pub struct Config {
     pub max_turns: usize,
     /// bash execution policy.
     pub bash: BashConfig,
-    /// whether to emit trace/spans to the observability bus.
-    pub observability: bool,
 }
 
 impl Default for Config {
@@ -47,7 +45,6 @@ impl Default for Config {
             model: String::from("deepseek-v4-flash-abliterated"),
             max_turns: 20,
             bash: BashConfig::default(),
-            observability: false,
         }
     }
 }

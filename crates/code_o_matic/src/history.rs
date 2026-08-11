@@ -169,10 +169,8 @@ impl History {
     /// codebase. includes the system prompt, tool schemas, message content
     /// and tool-call arguments so the figure reflects what is actually sent.
     pub fn estimated_request_tokens(&self, schemas: &[serde_json::Value]) -> usize {
-        let schemas_chars =
-            serde_json::to_string(schemas).map(|s| s.chars().count()).unwrap_or(0);
-        let sys_chars =
-            self.system_prompt.as_deref().map(|s| s.chars().count()).unwrap_or(0);
+        let schemas_chars = serde_json::to_string(schemas).map(|s| s.chars().count()).unwrap_or(0);
+        let sys_chars = self.system_prompt.as_deref().map(|s| s.chars().count()).unwrap_or(0);
         let body_chars: usize = self
             .messages
             .iter()
@@ -180,11 +178,7 @@ impl History {
                 let args: usize = m
                     .tool_calls
                     .iter()
-                    .map(|tc| {
-                        serde_json::to_string(&tc)
-                            .map(|s| s.chars().count())
-                            .unwrap_or(0)
-                    })
+                    .map(|tc| serde_json::to_string(&tc).map(|s| s.chars().count()).unwrap_or(0))
                     .sum();
                 m.content.chars().count() + args
             })

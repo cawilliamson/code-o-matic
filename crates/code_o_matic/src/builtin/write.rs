@@ -34,10 +34,11 @@ impl Tool for WriteTool {
     fn schema(&self) -> Value {
         json!({
             "name": "write",
+            "description": "Create or overwrite a file. Creates any missing parent directories. Path is relative to the repository root. Prefer edit for small targeted changes to an existing file.",
             "type": "object",
             "properties": {
-                "path": { "type": "string", "description": "relative path to write" },
-                "content": { "type": "string", "description": "content to write" }
+                "path": { "type": "string", "description": "path to write, relative to the repository root" },
+                "content": { "type": "string", "description": "full content to write" }
             },
             "required": ["path", "content"]
         })

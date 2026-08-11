@@ -34,9 +34,10 @@ impl Tool for ReadTool {
     fn schema(&self) -> Value {
         json!({
             "name": "read",
+            "description": "Read the contents of a text file. Output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files; when you need the whole file, continue with offset until complete. Path is relative to the repository root.",
             "type": "object",
             "properties": {
-                "path": { "type": "string", "description": "relative path inside the repository" },
+                "path": { "type": "string", "description": "path to the file to read, relative to the repository root" },
                 "offset": { "type": "integer", "description": "1-based starting line (default 1)" },
                 "limit": { "type": "integer", "description": "maximum lines to return; 0 means all remaining lines" }
             },

@@ -8,24 +8,26 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
+use code_o_matic::config::Config;
 use code_o_matic::llm::LlmClient;
-use code_o_matic::{llm, Agent};
 #[cfg(feature = "tui")]
 use code_o_matic::tui;
-use code_o_matic::config::Config;
+use code_o_matic::{llm, Agent};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let model = std::env::var("COM_MODEL")
-        .unwrap_or_else(|_| "deepseek-v4-flash-abliterated".to_string());
+    let model =
+        std::env::var("COM_MODEL").unwrap_or_else(|_| "deepseek-v4-flash-abliterated".to_string());
     let repo_root = std::env::var("COM_REPO_ROOT").unwrap_or_else(|_| ".".to_string());
+    let llm_provider = std::env::var("COM_LLM_PROVIDER").unwrap_or_else(|_| "twobobs".to_string());
     let config = Config {
         repo_root: PathBuf::from(repo_root).canonicalize()?,
-        llm_provider: String::from("twobobs"),
+        llm_provider,
         model,
         ..Config::default()
     };
-    let llm: Box<dyn LlmClient> = Box::new(llm::HttpLlmClient::from_env().await?);
+    let llm: Box<dyn LlmClient> =
+        Box::new(llm::HttpLlmClient::from_provider(&config.llm_provider).await?);
 
     let args: Vec<String> = std::env::args().collect();
     // collect non-flag prompt args

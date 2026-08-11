@@ -1,20 +1,77 @@
 # pre-commit hooks for the code-o-matic agent.
 #
-# Currently only clippy is wired up: it is the one linter available on this
-# machine (`cargo fmt`/rustfmt and `cargo-deny` are not installed here).
+# Full forced best-practice enforcement. All hooks are `language: system` and
+# reference Nix-provided binaries only — no pip/npm/cargo-install toolchains are
+# downloaded into pre-commit environments. The Rust gates below are
+# unconditional and non-negotiable; secrets/spelling gates enforce whenever the
+# tool is installed and skip cleanly otherwise (so a missing optional tool never
+# silently admits bad code — it just isn't wired on until you add it).
 #
-#   cargo fmt -- --check     # add when rustfmt is installed
-#   cargo deny check         # add when cargo-deny is installed (see deny.toml)
+# Required tools (via your Nix devshell / profile — see dotfiles):
+#   cargo, rustfmt (cargo fmt), clippy, cargo-deny
+# Optional, strongly recommended:
+#   gitleaks, typos
 #
-# Run manually with `pre-commit run --all-files`, or install the git hook with
-# `pre-commit install`.
+# Run manually:            pre-commit run --all-files
+# Install the git hook:    pre-commit install
 repos:
   - repo: local
     hooks:
-      - id: clippy
-        name: clippy
-        description: lint the rust workspace
-        entry: cargo clippy --workspace --all-targets
+      # ---- mandatory Rust gates -------------------------------------------
+
+      - id: rustfmt
+        name: rustfmt (format check)
+        description: reject code that is not rustfmt-formatted
+        entry: cargo fmt --all -- --check
         language: system
         pass_filenames: false
         types: [rust]
+
+      - id: clippy
+        name: clippy (all targets, deny warnings)
+        description: reject warnings under the strict workspace lint config
+        entry: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        language: system
+        pass_filenames: false
+        types: [rust]
+
+      - id: test
+        name: cargo test (workspace)
+        description: reject code that breaks the test suite
+        entry: cargo test --workspace
+        language: system
+        pass_filenames: false
+        types: [rust]
+
+      - id: cargo-deny
+        name: cargo-deny (licenses / bans / advisories)
+        description: reject unlicensed, copyleft, duplicate, or vulnerable deps
+        entry: cargo deny check
+        language: system
+        pass_filenames: false
+        files: '^(Cargo\.(toml|lock)|deny\.toml)$'
+
+      # ---- structural guards (zero-false-positive, no extra deps) -----------
+
+      - id: merge-conflict
+        name: no merge-conflict markers
+        description: reject files still containing conflict markers
+        entry: bash scripts/check-merge-conflict.sh
+        language: system
+        pass_filenames: true
+
+      # ---- optional best-practice gates (enforce when installed) ------------
+
+      - id: gitleaks
+        name: gitleaks (secrets scan)
+        description: reject commits that leak secrets/API keys
+        entry: bash -c 'command -v gitleaks >/dev/null || exit 0; gitleaks protect --staged --verbose'
+        language: system
+        pass_filenames: false
+
+      - id: typos
+        name: typos (spell check)
+        description: reject new typos in tracked files
+        entry: bash -c 'command -v typos >/dev/null || exit 0; typos --force-exclude .'
+        language: system
+        pass_filenames: false

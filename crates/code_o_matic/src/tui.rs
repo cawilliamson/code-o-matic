@@ -14,17 +14,17 @@ use ratatui::layout::{Alignment, Constraint, Layout, Margin, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{
-    Block, Borders, List, ListItem, ListState, Padding, Paragraph, Scrollbar,
-    ScrollbarOrientation, ScrollbarState, Wrap,
+    Block, Borders, List, ListItem, ListState, Padding, Paragraph, Scrollbar, ScrollbarOrientation,
+    ScrollbarState, Wrap,
 };
 use ratatui::Frame;
 use tokio::sync::{mpsc, Mutex};
 
+use crate::config::Config;
 use crate::history::Role;
 use crate::llm::{LlmClient, StreamEvent};
-use crate::Agent;
-use crate::config::Config;
 use crate::tools::ToolCall;
+use crate::Agent;
 use crate::{CommandAction, CommandContext, ViewBlock, ViewSpec};
 
 // events from the background streaming task to the UI loop
@@ -155,80 +155,6 @@ impl TuiAgent {
                 });
             }
         }
-    }
-
-    /// render the full view inline as chat messages instead of an overlay.
-    /// dumps every turn's blocks into self.messages so the normal chat scroll
-    /// shows the complete llm traffic.
-    async fn inline_full_view(&mut self) {
-        self.context_viewer = None;
-        let spec = {
-            let agent = self.agent.lock().await;
-            agent.build_view("full")
-        };
-        let Some(spec) = spec else {
-            self.messages.push(TuiMessage {
-                role: Role::Assistant,
-                content: "no 'full' view registered".to_string(),
-            });
-            self.follow_bottom = true;
-            return;
-        };
-
-        if spec.turns.is_empty() {
-            self.messages.push(TuiMessage {
-                role: Role::Assistant,
-                content: "no conversation history to display".to_string(),
-            });
-            self.follow_bottom = true;
-            return;
-        }
-
-        self.messages.push(TuiMessage {
-            role: Role::System,
-            content: format!(
-                "full view — {} turns, {}t / {}t ({}%)",
-                spec.turns.len(),
-                spec.total_tokens,
-                spec.limit_tokens,
-                spec.context_pct
-            ),
-        });
-
-        for turn in &spec.turns {
-            self.messages.push(TuiMessage {
-                role: Role::System,
-                content: format!(
-                    "── {} [{}] {}t{} ──",
-                    if turn.preview == "[system prompt]" { "system" } else { "turn" },
-                    turn.preview,
-                    turn.tokens_est,
-                    if turn.in_window { "" } else { " (out of window)" }
-                ),
-            });
-            for block in &turn.blocks {
-                let (role, content) = match block {
-                    ViewBlock::UserText { text, .. } => (Role::User, text.clone()),
-                    ViewBlock::AssistantText { text, .. } => {
-                        if let Some(reasoning) = text.strip_prefix("[reasoning] ") {
-                            (Role::Assistant, format!("thinking: {reasoning}"))
-                        } else {
-                            (Role::Assistant, text.clone())
-                        }
-                    }
-                    ViewBlock::ToolCall { name, input_json, .. } => {
-                        (Role::Tool, format!("→ {name}({input_json})"))
-                    }
-                    ViewBlock::ToolResult { tool_name, content, .. } => {
-                        (Role::Tool, format!("← {tool_name}: {content}"))
-                    }
-                };
-                self.messages.push(TuiMessage { role, content });
-            }
-        }
-
-        self.follow_bottom = true;
-        self.chat_scroll = 0;
     }
 
     async fn rebuild_context_viewer(&mut self) {
@@ -378,9 +304,7 @@ impl TuiAgent {
             push_styled_wrapped(
                 &mut lines,
                 &format!("{spinner} thinking… {}", self.reasoning),
-                Style::default()
-                    .fg(Color::DarkGray)
-                    .add_modifier(Modifier::ITALIC),
+                Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
                 width,
             );
             lines.push(Line::from(""));
@@ -402,9 +326,7 @@ impl TuiAgent {
             push_styled_wrapped(
                 &mut lines,
                 &format!("{spinner} thinking…"),
-                Style::default()
-                    .fg(Color::DarkGray)
-                    .add_modifier(Modifier::ITALIC),
+                Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
                 width,
             );
             lines.push(Line::from(""));
@@ -478,17 +400,14 @@ impl TuiAgent {
             let bg = if covered { colour } else { Color::Black };
             spans[c] = Span::styled(ch.to_string(), Style::default().fg(fg).bg(bg));
         }
-        let bar =
-            Paragraph::new(Line::from(spans)).block(Block::default().padding(Padding::horizontal(1)));
+        let bar = Paragraph::new(Line::from(spans))
+            .block(Block::default().padding(Padding::horizontal(1)));
         f.render_widget(bar, area);
     }
 
     fn draw_input_area(&self, f: &mut Frame<'_>, area: Rect) {
         let prompt = vec![
-            Span::styled(
-                "> ",
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-            ),
+            Span::styled("> ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::styled(self.input.clone(), Style::default().fg(Color::White)),
             Span::styled("▏", Style::default().fg(Color::DarkGray)),
         ];
@@ -757,11 +676,7 @@ impl TuiAgent {
                                 match result.action {
                                     None => {}
                                     Some(CommandAction::OpenView(name)) => {
-                                        if name == "full" {
-                                            self.inline_full_view().await;
-                                        } else {
-                                            self.open_view(&name).await;
-                                        }
+                                        self.open_view(&name).await;
                                     }
                                     Some(CommandAction::ClearHistory) => {
                                         let mut agent = self.agent.lock().await;
@@ -1027,9 +942,7 @@ async fn run_turn_inner(
         };
         if dropped > 0 {
             let _ = tx
-                .send(UiEvent::Status(format!(
-                    "context full: dropped {dropped} old messages"
-                )))
+                .send(UiEvent::Status(format!("context full: dropped {dropped} old messages")))
                 .await;
         }
         // start stream under lock (needs &self), then release lock during .recv().await
@@ -1157,10 +1070,7 @@ fn render_message(lines: &mut Vec<Line<'_>>, m: &TuiMessage, model_name: &str, w
 
     lines.push(Line::from(vec![
         Span::styled("▌ ", Style::default().fg(label_colour)),
-        Span::styled(
-            label,
-            Style::default().fg(label_colour).add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(label, Style::default().fg(label_colour).add_modifier(Modifier::BOLD)),
     ]));
     let inner = width.saturating_sub(2).max(1);
     let indent = "  ";
@@ -1168,10 +1078,7 @@ fn render_message(lines: &mut Vec<Line<'_>>, m: &TuiMessage, model_name: &str, w
         lines.push(Line::styled(format!("{indent}—"), Style::default().fg(body_colour)));
     }
     for raw in wrapped_lines(&m.content, inner) {
-        lines.push(Line::styled(
-            format!("{indent}{raw}"),
-            Style::default().fg(body_colour),
-        ));
+        lines.push(Line::styled(format!("{indent}{raw}"), Style::default().fg(body_colour)));
     }
     lines.push(Line::from(""));
 }
@@ -1181,10 +1088,7 @@ fn render_tool_card(lines: &mut Vec<Line<'_>>, m: &TuiMessage, width: usize) {
     let style = Style::default().fg(Color::Yellow);
     lines.push(Line::from(vec![
         Span::styled("⚡ ", Style::default().fg(Color::Yellow)),
-        Span::styled(
-            "tool",
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-        ),
+        Span::styled("tool", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
     ]));
     let inner = width.saturating_sub(2).max(1);
     let indent = "  ";
