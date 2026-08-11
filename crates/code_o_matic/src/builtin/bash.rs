@@ -1,4 +1,4 @@
-//! bash tool: run a shell command with safety guards.
+//! bash tool: run an arbitrary shell command.
 
 use std::path::PathBuf;
 
@@ -10,11 +10,6 @@ use crate::config::Config;
 use crate::registry::Registry;
 use crate::tools::{Tool, ToolError};
 use crate::types::PermissionClass;
-
-const BLOCKED: [&str; 12] = [
-    "rm", "dd", "mkfs", "parted", "fastboot", "shutdown", "reboot", "sudo", "curl", "wget",
-    "chmod", "chown",
-];
 
 /// register the bash tool against `api`.
 pub fn register(api: &mut Registry, config: &Config) {
@@ -54,29 +49,6 @@ impl Tool for BashTool {
         let raw = required_str(&args, "command")?.trim().to_string();
         if raw.is_empty() {
             return Err(ToolError::InvalidArgs("command required".into()));
-        }
-        if raw.contains('`') || raw.contains("$(") {
-            return Err(ToolError::InvalidArgs("command substitution is not allowed".into()));
-        }
-        if raw.contains("rm -rf") {
-            return Err(ToolError::InvalidArgs("rm -rf is not allowed".into()));
-        }
-        let words: Vec<&str> = raw.split(' ').collect();
-        let binary = words[0];
-        if BLOCKED.contains(&binary) {
-            return Err(ToolError::InvalidArgs(format!("{binary} is blocked")));
-        }
-        if !self.config.full {
-            if words.iter().any(|w| w.contains('>')) {
-                return Err(ToolError::InvalidArgs(
-                    "shell redirection is not allowed in safe mode".into(),
-                ));
-            }
-            if !self.config.allowlist.iter().any(|b| b == binary) {
-                return Err(ToolError::InvalidArgs(format!(
-                    "{binary} is not in the allowlist"
-                )));
-            }
         }
         run_shell(&self.config, &self.repo_root, &raw).await
     }

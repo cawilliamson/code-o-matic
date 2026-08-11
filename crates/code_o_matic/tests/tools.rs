@@ -86,65 +86,34 @@ async fn edit_tool_old_string_not_found_errors() {
 }
 
 #[tokio::test]
-async fn grep_tool_filters_matching_lines() {
-    let (_dir, config) = tmp_config();
-    std::fs::write(config.repo_root.join("f.txt"), "apple\nbanana\napricot\n").unwrap();
-    let mut api = Registry::new();
-    code_o_matic::register_builtins(&mut api, &config);
-    // when: grep is dispatched with a case-sensitive pattern
-    let result = api
-        .tools
-        .dispatch_call(&call("grep", json!({"path":"f.txt","pattern":"ap"})))
-        .await
-        .expect("grep ok");
-    // then: matching lines are returned
-    assert_eq!(result, "apple\napricot");
-}
-
-#[tokio::test]
-async fn glob_tool_lists_matching_files() {
+async fn bash_find_lists_files() {
     let (_dir, config) = tmp_config();
     std::fs::write(config.repo_root.join("a.txt"), "").unwrap();
-    std::fs::write(config.repo_root.join("b.rs"), "").unwrap();
     std::fs::create_dir_all(config.repo_root.join("sub")).unwrap();
     std::fs::write(config.repo_root.join("sub").join("c.txt"), "").unwrap();
     let mut api = Registry::new();
     code_o_matic::register_builtins(&mut api, &config);
-    // when: glob is dispatched with a txt pattern
+    // when: bash lists files using find
     let result = api
         .tools
-        .dispatch_call(&call("glob", json!({"path":"","pattern":"*.txt"})))
-        .await
-        .expect("glob ok");
-    let entries: Vec<&str> = result.split('\n').filter(|s| !s.is_empty()).collect();
-    // then: txt files at any depth are listed
-    assert!(entries.contains(&"a.txt"));
-    assert!(entries.contains(&"sub/c.txt"));
-    assert!(!entries.contains(&"b.rs"));
-}
-
-#[tokio::test]
-async fn bash_tool_blocked_binary_rejected() {
-    let (_dir, api) = registered();
-    // when: bash is dispatched with a blocked binary
-    let err = api
-        .tools
-        .dispatch_call(&call("bash", json!({"command":"rm -f x"})))
-        .await
-        .expect_err("should block");
-    // then: the block message names the binary
-    assert!(err.to_string().contains("rm is blocked"));
-}
-
-#[tokio::test]
-async fn bash_tool_runs_allowed_command() {
-    let (_dir, api) = registered();
-    // when: bash is dispatched with an allowlisted command
-    let result = api
-        .tools
-        .dispatch_call(&call("bash", json!({"command":"echo hello"})))
+        .dispatch_call(&call("bash", json!({"command":"find . -type f"})))
         .await
         .expect("bash ok");
-    // then: the command output is returned
-    assert_eq!(result.trim(), "hello");
+    let entries: Vec<&str> = result.split('\n').filter(|s| !s.is_empty()).collect();
+    // then: files at any depth are listed
+    assert!(entries.contains(&"./a.txt"));
+    assert!(entries.contains(&"./sub/c.txt"));
+}
+
+#[tokio::test]
+async fn bash_tool_runs_arbitrary_command() {
+    let (_dir, api) = registered();
+    // when: bash is dispatched with a chained, redirected, previously-blocked command
+    let result = api
+        .tools
+        .dispatch_call(&call("bash", json!({"command":"printf 'ok' > /tmp/com_scope_test; cat /tmp/com_scope_test"})))
+        .await
+        .expect("bash ok");
+    // then: redirection and arbitrary commands run without guards
+    assert_eq!(result.trim(), "ok");
 }

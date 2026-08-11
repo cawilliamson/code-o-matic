@@ -1,45 +1,15 @@
-//! system prompt built from the registered tool schemas.
+//! minimal system prompt. tools are declared to the model natively via the
+//! `tools` field on the request body, so nothing tool-related lives here.
 
 use std::path::Path;
 
-use crate::tools::ToolRegistry;
-
-/// build the default system prompt describing the available tools.
+/// build the lean default system prompt for a repo root.
 ///
-/// prepends the project `SOUL.md` personality and `AGENTS.md` instructions
-/// when present at the repo root, then lists every registered tool schema.
-pub(crate) fn default_system_prompt(tools: &ToolRegistry, repo_root: &Path) -> String {
-    let tool_docs: Vec<String> = tools
-        .schemas()
-        .iter()
-        .filter_map(|s| {
-            let name = s.get("name").and_then(|n| n.as_str())?;
-            let desc = s.get("description").and_then(|d| d.as_str()).unwrap_or("(no description)");
-            let required: Vec<String> = s
-                .get("required")
-                .and_then(|r| r.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-                .unwrap_or_default();
-            let props: Vec<String> = s
-                .get("properties")
-                .and_then(|p| p.as_object())
-                .map(|obj| {
-                    obj.iter()
-                        .map(|(k, v)| {
-                            let ty = v.get("type").and_then(|t| t.as_str()).unwrap_or("any");
-                            let pdesc = v.get("description").and_then(|d| d.as_str()).unwrap_or("");
-                            let req = if required.contains(k) { " (required)" } else { "" };
-                            format!("    {k}: {ty}{req} — {pdesc}")
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            let props_str = props.join("\n");
-            Some(format!("  {name}: {desc}\n{props_str}"))
-        })
-        .collect();
-    let tool_docs_str = tool_docs.join("\n\n");
-
+/// injects the project `SOUL.md` personality and `AGENTS.md` instructions when
+/// present and non-empty at the repo root, keeping the core itself to a single
+/// identity line. the tool list is omitted: tools go over the wire structurally,
+/// and context files are injected at full length.
+pub(crate) fn default_system_prompt(repo_root: &Path) -> String {
     let mut preface = String::new();
     if let Some(personality) = read_optional(repo_root, "SOUL.md") {
         preface.push_str(&format!("personality (SOUL.md):\n{personality}\n\n"));
@@ -49,13 +19,8 @@ pub(crate) fn default_system_prompt(tools: &ToolRegistry, repo_root: &Path) -> S
     }
 
     let core = format!(
-        "you are Code-o-matic (com), a minimal rust-native coding agent. you operate inside the \
-         repo at {repo_root}. all file access is jailed to the repo root. be terse and direct.\n\n\
-         for discovery use the glob tool, not `bash ls`. read AGENTS.md and SOUL.md at the repo \
-         root if present; then inspect only files relevant to the current task — do not dump the \
-         whole tree.\n\n\
-         available tools:\n{tool_docs_str}",
-        tool_docs_str = tool_docs_str,
+        "You are Code-o-matic (com), a Rust-native coding agent working in the repo at {repo_root}. \
+         Be terse.",
         repo_root = repo_root.display(),
     );
     if preface.is_empty() {
@@ -65,22 +30,26 @@ pub(crate) fn default_system_prompt(tools: &ToolRegistry, repo_root: &Path) -> S
     }
 }
 
+// read a context file, skipping empty/whitespace-only content.
 fn read_optional(root: &Path, name: &str) -> Option<String> {
-    std::fs::read_to_string(root.join(name)).ok()
+    let raw = std::fs::read_to_string(root.join(name)).ok()?;
+    if raw.trim().is_empty() {
+        return None;
+    }
+    Some(raw)
 }
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::tools::ToolRegistry;
 
     #[test]
     fn loads_agents_and_soul_into_prompt() {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(tmp.path().join("AGENTS.md"), "no print statements").unwrap();
         std::fs::write(tmp.path().join("SOUL.md"), "be dry and terse").unwrap();
-        let prompt = default_system_prompt(&ToolRegistry::new(), tmp.path());
+        let prompt = default_system_prompt(tmp.path());
         assert!(prompt.contains("AGENTS.md"));
         assert!(prompt.contains("no print statements"));
         assert!(prompt.contains("SOUL.md"));
@@ -90,7 +59,18 @@ mod tests {
     #[test]
     fn ignores_missing_context_files() {
         let tmp = tempfile::tempdir().unwrap();
-        let prompt = default_system_prompt(&ToolRegistry::new(), tmp.path());
+        let prompt = default_system_prompt(tmp.path());
+        assert!(!prompt.contains("project instructions (AGENTS.md):"));
+        assert!(!prompt.contains("personality (SOUL.md):"));
+        assert!(prompt.contains("Code-o-matic"));
+    }
+
+    #[test]
+    fn ignores_empty_context_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("AGENTS.md"), "").unwrap();
+        std::fs::write(tmp.path().join("SOUL.md"), "   \n  \n").unwrap();
+        let prompt = default_system_prompt(tmp.path());
         assert!(!prompt.contains("project instructions (AGENTS.md):"));
         assert!(!prompt.contains("personality (SOUL.md):"));
         assert!(prompt.contains("Code-o-matic"));

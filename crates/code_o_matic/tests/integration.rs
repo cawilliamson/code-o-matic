@@ -1,7 +1,6 @@
 #![allow(missing_docs)]
 #![allow(clippy::unwrap_used)]
 
-use code_o_matic::jail::{resolve, Jail, JailError};
 use code_o_matic::tools::{Tool, ToolError, ToolRegistry};
 use code_o_matic::types::PermissionClass;
 
@@ -74,58 +73,3 @@ async fn duplicate_active_tool_is_rejected() {
     assert!(matches!(err, ToolError::InvalidArgs(_)));
 }
 
-#[test]
-fn resolve_relative_path_inside_repo() {
-    let tmp = tempfile::tempdir().unwrap();
-    let repo = tmp.path();
-    std::fs::write(repo.join("a.txt"), "x").unwrap();
-    // when: resolve is called with a relative path inside the repo
-    let resolved = resolve(repo, "a.txt").unwrap();
-    // then: the resolved path matches the canonical repo path
-    assert_eq!(resolved, repo.join("a.txt").canonicalize().unwrap());
-}
-
-#[test]
-fn reject_absolute_path() {
-    let tmp = tempfile::tempdir().unwrap();
-    // when: resolve is called with an absolute path
-    let err = resolve(tmp.path(), "/etc/passwd").unwrap_err();
-    // then: the call rejects with an absolute-path error
-    assert!(matches!(err, JailError::Absolute(_)));
-}
-
-#[test]
-fn reject_dotdot_escape() {
-    let tmp = tempfile::tempdir().unwrap();
-    // when: resolve is called with a parent-directory escape
-    let err = resolve(tmp.path(), "../escape.txt").unwrap_err();
-    // then: the call rejects with an escapes error
-    assert!(matches!(err, JailError::Escapes(_)));
-}
-
-#[test]
-fn reject_symlink_escape() {
-    let tmp = tempfile::tempdir().unwrap();
-    let outside = tmp.path().join("../outside.txt");
-    std::fs::write(&outside, "x").unwrap();
-    let link = tmp.path().join("link.txt");
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(&outside, &link).unwrap();
-    #[cfg(windows)]
-    std::os::windows::fs::symlink_file(&outside, &link).unwrap();
-
-    // when: resolve is called with a symlink that escapes the repo
-    let err = resolve(tmp.path(), "link.txt").unwrap_err();
-    // then: the call rejects with an outside error
-    assert!(matches!(err, JailError::Outside(_)));
-}
-
-#[test]
-fn jail_resolves_relative() {
-    let tmp = tempfile::tempdir().unwrap();
-    let jail = Jail::new(tmp.path().to_path_buf());
-    // when: Jail::resolve is called with a nested relative path
-    let target = jail.resolve("foo/bar.txt").unwrap();
-    // then: the resolved path is the canonical repo root joined with the input
-    assert_eq!(target, tmp.path().canonicalize().unwrap().join("foo/bar.txt"));
-}

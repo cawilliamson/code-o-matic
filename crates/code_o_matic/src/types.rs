@@ -118,6 +118,6 @@ pub enum PermissionClass {
     Network,
 }
 
-/// the path a tool will affect, if any. lets hooks (e.g. jail) inspect the
+/// the path a tool will affect, if any. lets hooks (e.g. read/write) inspect the
 /// target before execution.
 pub type AffectedPath = PathBuf;

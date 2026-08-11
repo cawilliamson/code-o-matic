@@ -12,7 +12,6 @@ pub mod builtin;
 pub mod config;
 pub mod history;
 pub mod hooks;
-pub mod jail;
 pub mod llm;
 pub mod registry;
 #[cfg(feature = "sessions")]
@@ -34,6 +33,5 @@ pub use registry::{
     CommandResult, Registry, ViewBlock, ViewBuilder, ViewRegistry, ViewSpec, ViewTurn,
 };
 pub use hooks::HookBus;
-pub use jail::{Jail, JailError};
 pub use tools::{Tool, ToolCall, ToolError, ToolRegistry};
 pub use types::{ContentBlock, LlmRequest, LlmResponse, Message, PermissionClass, Role, Usage};

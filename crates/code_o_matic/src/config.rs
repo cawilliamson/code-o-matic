@@ -8,6 +8,20 @@ use serde::{Deserialize, Serialize};
 /// configured context length on the twobobs gateway (bob1/bob2).
 pub const CONTEXT_LIMIT_TOKENS: usize = 256 * 1024;
 
+/// cap on characters kept from a single tool result or context file, so one
+/// oversized output can't blow the context window. ~20k tokens at worst.
+pub const MAX_TOOL_RESULT_CHARS: usize = 80_000;
+
+/// truncate `s` to at most `max` characters, cut on a char boundary, and append
+/// a visible marker so the model knows content was dropped.
+pub(crate) fn truncate_chars(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let cut = s.char_indices().take(max).map(|(i, _)| i).last().unwrap_or(0);
+    format!("{}…[truncated]", &s[..cut])
+}
+
 /// global agent configuration.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
@@ -41,31 +55,12 @@ impl Default for Config {
 /// bash tool policy.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BashConfig {
-    /// if true, any binary on `$PATH` is allowed (dangerous).
-    pub full: bool,
-    /// allowed binaries in safe mode.
-    pub allowlist: Vec<String>,
     /// command timeout in seconds.
     pub timeout_secs: u64,
 }
 
 impl Default for BashConfig {
     fn default() -> Self {
-        Self { full: false, allowlist: Self::safe_defaults(), timeout_secs: 30 }
-    }
-}
-
-impl BashConfig {
-    /// default safe-mode allowlist.
-    pub fn safe_defaults() -> Vec<String> {
-        [
-            "basename", "cat", "cp", "cargo", "date", "diff", "dirname", "du", "echo",
-            "env", "find", "git", "head", "hostname", "ls", "mkdir", "mv", "printf",
-            "pwd", "rg", "sed", "sort", "stat", "tail", "touch", "uname", "uniq", "wc",
-            "which", "whoami",
-        ]
-        .iter()
-        .map(ToString::to_string)
-        .collect()
+        Self { timeout_secs: 30 }
     }
 }

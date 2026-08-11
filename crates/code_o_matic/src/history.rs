@@ -90,6 +90,8 @@ impl History {
     }
 
     pub fn append_tool_result(&mut self, tool_call_id: String, content: String) {
+        // cap oversized tool output so one tool call can't blow the context window.
+        let content = crate::config::truncate_chars(&content, crate::config::MAX_TOOL_RESULT_CHARS);
         self.messages.push(Message {
             role: Role::Tool,
             content,

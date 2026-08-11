@@ -42,7 +42,7 @@ impl Agent {
         let views = crate::ViewRegistry::new();
         let commands = crate::CommandRegistry::new();
         let prompt = std::env::var("COM_SYSTEM_PROMPT")
-            .unwrap_or_else(|_| super::system_prompt::default_system_prompt(&tools, &repo_root));
+            .unwrap_or_else(|_| super::system_prompt::default_system_prompt(&repo_root));
         let mut history = History::new(max_turns);
         history.set_system_prompt(prompt);
         Self {
@@ -84,7 +84,7 @@ impl Agent {
         // rebuild system prompt now that tools are registered.
         let repo_root = self.config.repo_root.clone();
         let prompt = std::env::var("COM_SYSTEM_PROMPT")
-            .unwrap_or_else(|_| super::system_prompt::default_system_prompt(&self.tools, &repo_root));
+            .unwrap_or_else(|_| super::system_prompt::default_system_prompt(&repo_root));
         self.history.set_system_prompt(prompt);
 
         self.initialized = true;

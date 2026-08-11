@@ -1,27 +1,28 @@
 //! read tool: read a file slice by line range.
 
+use std::path::PathBuf;
+
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use super::common::{opt_usize, read_via_jail, required_str};
+use super::common::{opt_usize, read_at, required_str};
 use crate::config::Config;
 use crate::registry::Registry;
-use crate::jail::Jail;
 use crate::tools::{Tool, ToolError};
 use crate::types::PermissionClass;
 
 /// register the read tool against `api`.
 pub fn register(api: &mut Registry, config: &Config) {
-    api.tools.register(ReadTool::new(Jail::new(config.repo_root.clone())));
+    api.tools.register(ReadTool::new(config.repo_root.clone()));
 }
 
 struct ReadTool {
-    jail: Jail,
+    root: PathBuf,
 }
 
 impl ReadTool {
-    const fn new(jail: Jail) -> Self {
-        Self { jail }
+    const fn new(root: PathBuf) -> Self {
+        Self { root }
     }
 }
 
@@ -47,7 +48,7 @@ impl Tool for ReadTool {
     }
     async fn run(&self, args: Value) -> Result<String, ToolError> {
         let path = required_str(&args, "path")?;
-        let content = read_via_jail(&self.jail, path)?;
+        let content = read_at(&self.root, path)?;
         let offset = opt_usize(&args, "offset", 1).max(1);
         let limit = opt_usize(&args, "limit", 0);
         let lines: Vec<&str> = content.split('\n').collect();

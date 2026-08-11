@@ -1,8 +1,9 @@
 //! shared helpers for the built-in tools.
 
+use std::path::{Path, PathBuf};
+
 use serde_json::Value;
 
-use crate::jail::Jail;
 use crate::tools::ToolError;
 
 /// read a required string argument.
@@ -21,8 +22,18 @@ pub fn opt_usize(args: &Value, key: &str, def: usize) -> usize {
         .unwrap_or(def)
 }
 
-/// resolve `path` against the jail and read it as a string.
-pub fn read_via_jail(jail: &Jail, path: &str) -> Result<String, ToolError> {
-    let resolved = jail.resolve(path).map_err(|e| ToolError::Jail(e.to_string()))?;
-    std::fs::read_to_string(&resolved).map_err(ToolError::Io)
+/// resolve a tool-supplied path: absolute paths used as-is, relative paths
+/// joined to the repo root (the working base). no validation — any dir is allowed.
+pub fn resolve_path(repo_root: &Path, path: &str) -> PathBuf {
+    let p = Path::new(path);
+    if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        repo_root.join(p)
+    }
+}
+
+/// resolve `path` against the repo root and read it as a string.
+pub fn read_at(repo_root: &Path, path: &str) -> Result<String, ToolError> {
+    std::fs::read_to_string(resolve_path(repo_root, path)).map_err(ToolError::Io)
 }

@@ -19,9 +19,6 @@ pub enum ToolError {
     /// the arguments passed to the tool were malformed or missing.
     #[error("invalid arguments: {0}")]
     InvalidArgs(String),
-    /// the requested path broke out of the repo jail.
-    #[error("jail violation: {0}")]
-    Jail(String),
     /// an i/o error occurred while executing the tool.
     #[error("io: {0}")]
     Io(#[from] std::io::Error),

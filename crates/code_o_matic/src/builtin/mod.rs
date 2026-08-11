@@ -8,8 +8,6 @@
 mod bash;
 mod common;
 mod edit;
-mod glob;
-mod grep;
 mod read;
 mod views;
 mod write;
@@ -23,13 +21,11 @@ use crate::registry::{
 
 /// register every first-party builtin against `api`.
 ///
-/// `config` supplies the repo root (via a fresh jail) and the bash policy.
+/// `config` supplies the repo root (the working base) and the bash policy.
 pub fn register_builtins(api: &mut crate::registry::Registry, config: &Config) {
     read::register(api, config);
     write::register(api, config);
     edit::register(api, config);
-    grep::register(api, config);
-    glob::register(api, config);
     bash::register(api, config);
     views::register(api);
 

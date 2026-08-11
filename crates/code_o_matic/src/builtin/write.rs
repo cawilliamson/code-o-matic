@@ -1,27 +1,28 @@
 //! write tool: create or overwrite a file.
 
+use std::path::PathBuf;
+
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use super::common::required_str;
+use super::common::{required_str, resolve_path};
 use crate::config::Config;
 use crate::registry::Registry;
-use crate::jail::Jail;
 use crate::tools::{Tool, ToolError};
 use crate::types::PermissionClass;
 
 /// register the write tool against `api`.
 pub fn register(api: &mut Registry, config: &Config) {
-    api.tools.register(WriteTool::new(Jail::new(config.repo_root.clone())));
+    api.tools.register(WriteTool::new(config.repo_root.clone()));
 }
 
 struct WriteTool {
-    jail: Jail,
+    root: PathBuf,
 }
 
 impl WriteTool {
-    const fn new(jail: Jail) -> Self {
-        Self { jail }
+    const fn new(root: PathBuf) -> Self {
+        Self { root }
     }
 }
 
@@ -47,7 +48,7 @@ impl Tool for WriteTool {
     async fn run(&self, args: Value) -> Result<String, ToolError> {
         let path = required_str(&args, "path")?;
         let content = required_str(&args, "content")?;
-        let resolved = self.jail.resolve(path).map_err(|e| ToolError::Jail(e.to_string()))?;
+        let resolved = resolve_path(&self.root, path);
         std::fs::write(&resolved, content)?;
         Ok(format!("wrote {} bytes to {path}", content.len()))
     }

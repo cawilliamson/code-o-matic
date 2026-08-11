@@ -43,7 +43,7 @@ async fn agent_dispatches_read_tool_then_responds() {
 }
 
 #[tokio::test]
-async fn agent_rejects_jail_escape_via_tool() {
+async fn agent_reads_absolute_path() {
     let tmp = tempfile::TempDir::new().unwrap();
     let repo = tmp.path().to_path_buf();
 
@@ -56,18 +56,18 @@ async fn agent_rejects_jail_escape_via_tool() {
                 arguments: json!({ "path": "/etc/passwd" }),
             }],
         },
-        LlmResponse { content: "could not read".to_string(), tool_calls: vec![] },
+        LlmResponse { content: "done".to_string(), tool_calls: vec![] },
     ];
 
     let llm: Box<dyn LlmClient> = Box::new(ReplayLlmClient::new(responses));
     let mut agent = Agent::new(Config { repo_root: repo, ..Config::default() }, llm);
     agent.init_builtins();
 
-    // when: run_turn is invoked with a tool call that escapes the jail
-    let reply = agent.run_turn("read /etc/passwd".to_string()).await.unwrap();
-    // then: the tool error surfaces in history and the agent still completes
-    assert_eq!(reply, "could not read");
-    assert!(agent.history.messages[2].content.starts_with("error:"));
+    // when: run_turn is invoked with a tool call reading an absolute path
+    let reply = agent.run_turn("read the hostname".to_string()).await.unwrap();
+    // then: absolute paths outside the repo are readable (no jail restriction)
+    assert_eq!(reply, "done");
+    assert!(!agent.history.messages[2].content.starts_with("error:"));
 }
 #[test]
 fn agent_has_default_system_prompt() {
@@ -81,11 +81,11 @@ fn agent_has_default_system_prompt() {
     // when: an agent is constructed and extensions are loaded
     assert!(agent.history.system_prompt.is_some());
     let prompt = agent.history.system_prompt.as_ref().unwrap();
-    // then: the default system prompt mentions code-o-matic and the core tools
+    // then: the default system prompt is the lean identity line, with tools
+    // declared structurally (via request `tools`) rather than in the prompt
     assert!(prompt.contains("Code-o-matic"));
-    assert!(prompt.contains("read"));
-    assert!(prompt.contains("write"));
-    assert!(prompt.contains("bash"));
+    assert!(!prompt.contains("available tools:"));
+    assert!(!prompt.contains("read:"));
 }
 
 #[test]
