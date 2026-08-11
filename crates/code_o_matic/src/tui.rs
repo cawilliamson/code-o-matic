@@ -437,9 +437,16 @@ impl TuiAgent {
         let chat = Paragraph::new(lines).block(block).scroll((scroll, 0));
         f.render_widget(chat, area);
 
-        // vertical scrollbar when content overflows
+        // vertical scrollbar when content overflows. ratatui's scrollbar only puts
+        // the thumb at the bottom when position == content_length - 1, so we normalise
+        // the paragraph scroll offset (0..=max_scroll) onto that range.
         if total > height {
-            let mut state = ScrollbarState::new(total).position(scroll as usize);
+            let sb_pos = if max_scroll == 0 {
+                0
+            } else {
+                (scroll as usize).saturating_mul(total.saturating_sub(1)) / (max_scroll as usize)
+            };
+            let mut state = ScrollbarState::new(total).position(sb_pos);
             let scrollbar = Scrollbar::default()
                 .orientation(ScrollbarOrientation::VerticalRight)
                 .begin_symbol(None)
