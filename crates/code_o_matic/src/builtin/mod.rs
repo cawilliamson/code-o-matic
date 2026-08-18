@@ -29,12 +29,13 @@ pub fn register_builtins(api: &mut crate::registry::Registry, config: &Config) {
     inspect::register(api, config);
     views::register(api);
 
-    let core_commands: [(&str, &str, CommandHandler); 7] = [
+    let core_commands: [(&str, &str, CommandHandler); 8] = [
         (
             "help",
             "list available commands",
             native_command(|_| CommandResult {
-                message: "commands: /help /clear /new /model /undo /quit /context".into(),
+                message: "commands: /help /clear /new /model /undo /quit /context /reasoning"
+                    .into(),
                 action: None,
             }),
         ),
@@ -56,11 +57,23 @@ pub fn register_builtins(api: &mut crate::registry::Registry, config: &Config) {
         ),
         (
             "model",
-            "switch model: /model <name>",
+            "list or switch model: /model [name]",
             native_command(|ctx| {
                 let args = ctx.args.trim();
                 if args.is_empty() {
-                    CommandResult { message: "usage: /model <name>".into(), action: None }
+                    if ctx.available_models.is_empty() {
+                        return CommandResult {
+                            message: format!(
+                                "{} — no models discovered (check the endpoint or set COM_MODEL)",
+                                ctx.model
+                            ),
+                            action: None,
+                        };
+                    }
+                    CommandResult {
+                        message: "select a model".into(),
+                        action: Some(CommandAction::OpenModelPicker),
+                    }
                 } else {
                     CommandResult {
                         message: format!("switching model to {args}"),
@@ -91,6 +104,31 @@ pub fn register_builtins(api: &mut crate::registry::Registry, config: &Config) {
             native_command(|_| CommandResult {
                 message: "opening context view…".into(),
                 action: Some(CommandAction::OpenView("context".into())),
+            }),
+        ),
+        (
+            "reasoning",
+            "toggle reasoning display: /reasoning [on|off]",
+            native_command(|ctx| {
+                let label = if ctx.reasoning { "on" } else { "off" };
+                let target = match ctx.args.trim() {
+                    "" => Some(!ctx.reasoning),
+                    "on" => Some(true),
+                    "off" => Some(false),
+                    _ => None,
+                };
+                match target {
+                    Some(v) => CommandResult {
+                        message: format!("reasoning {}", if v { "on" } else { "off" }),
+                        action: Some(CommandAction::SetReasoning(v)),
+                    },
+                    None => CommandResult {
+                        message: format!(
+                            "reasoning is currently {label} — usage: /reasoning [on|off]"
+                        ),
+                        action: None,
+                    },
+                }
             }),
         ),
     ];

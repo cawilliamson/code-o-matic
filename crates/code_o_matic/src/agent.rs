@@ -16,8 +16,9 @@ pub struct Agent {
     pub config: Arc<Config>,
     /// conversation history.
     pub history: History,
-    /// llm provider client.
-    pub llm: Box<dyn LlmClient>,
+    /// llm provider client, shared by arc so a streaming/model request can be made
+    /// without holding the agent lock.
+    pub llm: Arc<dyn LlmClient>,
     /// registered tools.
     pub tools: ToolRegistry,
     /// registered tui views.
@@ -31,7 +32,7 @@ pub struct Agent {
 impl Agent {
     /// build an agent with the given config and llm client. built-ins are not
     /// registered yet — call `init_builtins` before running a turn.
-    pub fn new(config: Config, llm: Box<dyn LlmClient>) -> Self {
+    pub fn new(config: Config, llm: Arc<dyn LlmClient>) -> Self {
         let repo_root = config.repo_root.clone();
         let max_turns = config.max_turns;
 

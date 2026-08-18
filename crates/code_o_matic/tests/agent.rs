@@ -8,6 +8,7 @@ use code_o_matic::tools::ToolCall;
 use code_o_matic::Agent;
 
 use serde_json::json;
+use std::sync::Arc;
 
 #[tokio::test]
 async fn agent_dispatches_read_tool_then_responds() {
@@ -29,7 +30,7 @@ async fn agent_dispatches_read_tool_then_responds() {
         LlmResponse { content: "the file contains: world".to_string(), tool_calls: vec![] },
     ];
 
-    let llm: Box<dyn LlmClient> = Box::new(ReplayLlmClient::new(responses));
+    let llm: Arc<dyn LlmClient> = Arc::new(ReplayLlmClient::new(responses));
     let mut agent = Agent::new(Config { repo_root: repo, ..Config::default() }, llm);
     agent.init_builtins();
 
@@ -59,7 +60,7 @@ async fn agent_reads_absolute_path() {
         LlmResponse { content: "done".to_string(), tool_calls: vec![] },
     ];
 
-    let llm: Box<dyn LlmClient> = Box::new(ReplayLlmClient::new(responses));
+    let llm: Arc<dyn LlmClient> = Arc::new(ReplayLlmClient::new(responses));
     let mut agent = Agent::new(Config { repo_root: repo, ..Config::default() }, llm);
     agent.init_builtins();
 
@@ -75,7 +76,7 @@ fn agent_has_default_system_prompt() {
 
     let dir = std::env::temp_dir();
     let cfg = Config { repo_root: dir.clone(), ..Config::default() };
-    let llm: Box<dyn LlmClient> = Box::new(ReplayLlmClient::new(vec![]));
+    let llm: Arc<dyn LlmClient> = Arc::new(ReplayLlmClient::new(vec![]));
     let mut agent = Agent::new(cfg, llm);
     agent.init_builtins();
     // when: an agent is constructed and extensions are loaded
@@ -94,7 +95,7 @@ fn agent_system_prompt_in_request() {
 
     let dir = std::env::temp_dir();
     let cfg = Config { repo_root: dir, ..Config::default() };
-    let llm: Box<dyn LlmClient> = Box::new(ReplayLlmClient::new(vec![]));
+    let llm: Arc<dyn LlmClient> = Arc::new(ReplayLlmClient::new(vec![]));
     let mut agent = Agent::new(cfg, llm);
     agent.init_builtins();
     agent.history.append_user("hi".to_string());

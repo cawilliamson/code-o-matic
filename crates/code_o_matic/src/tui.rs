@@ -32,7 +32,7 @@ enum UiEvent {
     Delta(String),
     Reasoning(String),
     RoundDone,
-    ToolResult { name: String, preview: String },
+    ToolResult { name: String, command: Option<String>, preview: String },
     Context,
     Status(String),
     Error(String),
@@ -43,6 +43,10 @@ enum UiEvent {
 struct TuiMessage {
     role: Role,
     content: String,
+    /// executed command for tool cards (bash etc).
+    command: Option<String>,
+    /// originating tool name for tool cards.
+    tool: Option<String>,
 }
 
 struct ContextViewerState {
@@ -55,8 +59,17 @@ struct ContextViewerState {
     confirm_clear: bool,
 }
 
+// interactive model-selection overlay state.
+struct ModelPickerState {
+    models: Vec<String>,
+    selected: usize,
+    current: String,
+}
+
 pub struct TuiAgent {
     agent: Arc<Mutex<Agent>>,
+    /// shared llm client so the turn task can stream without locking the agent.
+    llm: Arc<dyn LlmClient>,
     messages: Vec<TuiMessage>,
     streaming: String,
     reasoning: String,
@@ -69,6 +82,7 @@ pub struct TuiAgent {
     ui_rx: Option<mpsc::Receiver<UiEvent>>,
     model_name: String,
     context_viewer: Option<ContextViewerState>,
+    model_picker: Option<ModelPickerState>,
     reasoning_visible: bool,
     slash_selection: usize,
     // cached values updated from async context — draw reads these instead of locking
@@ -82,10 +96,12 @@ pub struct TuiAgent {
 
 impl TuiAgent {
     pub fn new(agent: Agent) -> Self {
+        let llm = agent.llm.clone();
         let model_name = agent.config.model.clone();
-        let cwd = agent.config.repo_root.display().to_string();
+        let cwd = readable_path(&agent.config.repo_root);
         Self {
             agent: Arc::new(Mutex::new(agent)),
+            llm,
             messages: Vec::new(),
             streaming: String::new(),
             reasoning: String::new(),
@@ -98,6 +114,7 @@ impl TuiAgent {
             ui_rx: None,
             model_name,
             context_viewer: None,
+            model_picker: None,
             reasoning_visible: true,
             slash_selection: 0,
             cached_cwd: cwd,
@@ -113,7 +130,7 @@ impl TuiAgent {
     /// context (uses `.lock().await`). draw methods read only cached fields.
     async fn refresh_cache(&mut self) {
         let agent = self.agent.lock().await;
-        self.cached_cwd = agent.config.repo_root.display().to_string();
+        self.cached_cwd = readable_path(&agent.config.repo_root);
         self.cached_tool_count = agent.tools.schemas().len();
         self.cached_command_names = agent.commands.names();
         self.model_name = agent.config.model.clone();
@@ -152,6 +169,8 @@ impl TuiAgent {
                 self.messages.push(TuiMessage {
                     role: Role::Assistant,
                     content: format!("no '{name}' view registered"),
+                    command: None,
+                    tool: None,
                 });
             }
         }
@@ -182,11 +201,38 @@ impl TuiAgent {
     async fn rebuild_messages_from_history(&mut self) {
         let messages: Vec<TuiMessage> = {
             let agent = self.agent.lock().await;
-            agent
-                .history
-                .messages
+            let hist = &agent.history;
+            hist.messages
                 .iter()
-                .map(|m| TuiMessage { role: m.role, content: m.content.clone() })
+                .map(|m| {
+                    // tool cards draw their name + command from the original tool
+                    // call (matched by id), so they survive transcript rebuilds
+                    // instead of degrading to anonymous output.
+                    let mut tui = TuiMessage {
+                        role: m.role,
+                        content: m.content.clone(),
+                        command: None,
+                        tool: None,
+                    };
+                    if m.role == Role::Tool {
+                        if let Some(tcid) = &m.tool_call_id {
+                            let found = hist
+                                .messages
+                                .iter()
+                                .flat_map(|x| x.tool_calls.iter())
+                                .find(|tc| &tc.id == tcid);
+                            if let Some(tc) = found {
+                                tui.tool = Some(tc.name.clone());
+                                tui.command = tc
+                                    .arguments
+                                    .get("command")
+                                    .and_then(|c| c.as_str())
+                                    .map(String::from);
+                            }
+                        }
+                    }
+                    tui
+                })
                 .collect()
         };
         self.messages = messages;
@@ -240,6 +286,10 @@ impl TuiAgent {
     fn draw(&mut self, f: &mut Frame<'_>) {
         if let Some(viewer) = &self.context_viewer {
             self.draw_context_viewer(f, viewer);
+            return;
+        }
+        if let Some(picker) = &self.model_picker {
+            self.draw_model_picker(f, picker);
             return;
         }
 
@@ -314,7 +364,12 @@ impl TuiAgent {
         if self.busy && !self.streaming.is_empty() {
             render_message(
                 &mut lines,
-                &TuiMessage { role: Role::Assistant, content: self.streaming.clone() },
+                &TuiMessage {
+                    role: Role::Assistant,
+                    content: self.streaming.clone(),
+                    command: None,
+                    tool: None,
+                },
                 &self.model_name,
                 width,
             );
@@ -453,7 +508,7 @@ impl TuiAgent {
             sep.clone(),
             Span::styled("/help commands", Style::default().fg(Color::White)),
             sep.clone(),
-            Span::styled("ctrl+r reasoning", Style::default().fg(Color::White)),
+            Span::styled("/reasoning", Style::default().fg(Color::White)),
         ]);
         let bar = Paragraph::new(Text::from(vec![footer]))
             .style(Style::default().bg(Color::Black))
@@ -604,6 +659,9 @@ impl TuiAgent {
             if self.context_viewer.is_some() {
                 return self.handle_context_viewer_key(k).await;
             }
+            if self.model_picker.is_some() {
+                return self.handle_model_picker_key(k).await;
+            }
 
             // slash autocomplete navigation
             if self.slash_prefix().is_some() {
@@ -642,8 +700,9 @@ impl TuiAgent {
                 KeyCode::Enter if !self.busy && !self.input.is_empty() => {
                     let prompt = std::mem::take(&mut self.input);
                     self.slash_selection = 0;
-                    self.messages.push(TuiMessage { role: Role::User, content: prompt.clone() });
                     if let Some(rest) = prompt.strip_prefix('/') {
+                        // slash commands act without a chat bubble; feedback goes
+                        // to the status line instead of the conversation.
                         let mut parts = rest.splitn(2, ' ');
                         let cmd_name = parts.next().unwrap_or_default().to_string();
                         let args = parts.next().unwrap_or_default().to_string();
@@ -658,25 +717,24 @@ impl TuiAgent {
                                     .unwrap_or_default(),
                                 args: args.clone(),
                                 snapshot: agent.build_conversation_snapshot(),
+                                reasoning: self.reasoning_visible,
+                                available_models: agent.config.available_models.clone(),
                             };
                             (ctx, agent.commands.clone())
                         };
                         match commands.dispatch(&cmd_name, &ctx) {
                             Err(e) => {
-                                self.messages.push(TuiMessage {
-                                    role: Role::System,
-                                    content: format!("{e}"),
-                                });
+                                self.status = format!("{e}");
                             }
                             Ok(result) => {
-                                self.messages.push(TuiMessage {
-                                    role: Role::System,
-                                    content: result.message,
-                                });
+                                self.status = result.message;
                                 match result.action {
                                     None => {}
                                     Some(CommandAction::OpenView(name)) => {
                                         self.open_view(&name).await;
+                                    }
+                                    Some(CommandAction::OpenModelPicker) => {
+                                        self.open_model_picker().await;
                                     }
                                     Some(CommandAction::ClearHistory) => {
                                         let mut agent = self.agent.lock().await;
@@ -692,18 +750,18 @@ impl TuiAgent {
                                         self.rebuild_messages_from_history().await;
                                         self.refresh_cache().await;
                                     }
+                                    Some(CommandAction::SetReasoning(v)) => {
+                                        self.reasoning_visible = v;
+                                        self.refresh_cache().await;
+                                    }
                                     Some(CommandAction::SetModel(m)) => {
                                         let mut agent = self.agent.lock().await;
                                         if let Some(cfg) = Arc::get_mut(&mut agent.config) {
                                             cfg.model = m.clone();
                                             self.model_name = m;
                                         } else {
-                                            self.messages.push(TuiMessage {
-                                                role: Role::System,
-                                                content: format!(
-                                                    "model will change to {m} on restart"
-                                                ),
-                                            });
+                                            self.status =
+                                                format!("model will change to {m} on restart");
                                         }
                                         drop(agent);
                                         self.refresh_cache().await;
@@ -715,6 +773,8 @@ impl TuiAgent {
                                         self.messages.push(TuiMessage {
                                             role: Role::User,
                                             content: text.clone(),
+                                            command: None,
+                                            tool: None,
                                         });
                                         self.busy = true;
                                         self.streaming.clear();
@@ -727,6 +787,12 @@ impl TuiAgent {
                             }
                         }
                     } else {
+                        self.messages.push(TuiMessage {
+                            role: Role::User,
+                            content: prompt.clone(),
+                            command: None,
+                            tool: None,
+                        });
                         self.busy = true;
                         self.streaming.clear();
                         self.reasoning.clear();
@@ -764,9 +830,6 @@ impl TuiAgent {
                     self.follow_bottom = false;
                     self.chat_scroll = 0;
                 }
-                KeyCode::Char('r') if !self.busy && k.modifiers.contains(KeyModifiers::CONTROL) => {
-                    self.reasoning_visible = !self.reasoning_visible;
-                }
                 KeyCode::Char(c) if !self.busy && !k.modifiers.contains(KeyModifiers::CONTROL) => {
                     self.input.push(c);
                 }
@@ -802,12 +865,17 @@ impl TuiAgent {
                         let mut agent = self.agent.lock().await;
                         agent.history.drop_range(turn.msg_index, turn.msg_count);
                         drop(agent);
+                        // keep the transcript consistent with the trimmed history
+                        self.rebuild_messages_from_history().await;
+                        self.refresh_cache().await;
                         self.rebuild_context_viewer().await;
                     }
                 } else if viewer.confirm_clear {
                     let mut agent = self.agent.lock().await;
                     agent.history.clear_messages();
                     drop(agent);
+                    self.rebuild_messages_from_history().await;
+                    self.refresh_cache().await;
                     self.rebuild_context_viewer().await;
                 }
             }
@@ -849,14 +917,107 @@ impl TuiAgent {
         Ok(true)
     }
 
-    // spawn background task that drives one full turn (possibly multiple tool rounds)
+    // open the interactive model picker from the discovered list.
+    async fn open_model_picker(&mut self) {
+        let (models, current) = {
+            let agent = self.agent.lock().await;
+            let current = agent.config.model.clone();
+            let models = agent.config.available_models.clone();
+            (models, current)
+        };
+        if models.is_empty() {
+            self.status = "no models discovered — check the endpoint or set COM_MODEL".to_string();
+            return;
+        }
+        let selected = models.iter().position(|m| *m == current).unwrap_or(0);
+        self.model_picker = Some(ModelPickerState { models, selected, current });
+    }
+
+    async fn handle_model_picker_key(&mut self, k: KeyEvent) -> anyhow::Result<bool> {
+        let Some(picker) = self.model_picker.as_mut() else {
+            return Ok(true);
+        };
+        match k.code {
+            KeyCode::Up => {
+                if picker.selected > 0 {
+                    picker.selected -= 1;
+                }
+            }
+            KeyCode::Down => {
+                if picker.selected + 1 < picker.models.len() {
+                    picker.selected += 1;
+                }
+            }
+            KeyCode::Esc => {
+                self.model_picker = None;
+                self.status = "ready".to_string();
+            }
+            KeyCode::Enter => {
+                let chosen = picker.models[picker.selected].clone();
+                self.model_picker = None;
+                let mut agent = self.agent.lock().await;
+                if let Some(cfg) = Arc::get_mut(&mut agent.config) {
+                    cfg.model = chosen.clone();
+                    self.model_name = chosen.clone();
+                    self.status = format!("switched model to {chosen}");
+                }
+                drop(agent);
+                self.refresh_cache().await;
+            }
+            _ => {}
+        }
+        Ok(true)
+    }
+
+    fn draw_model_picker(&self, f: &mut Frame<'_>, picker: &ModelPickerState) {
+        let area = f.area();
+        let w = 60.min(area.width.saturating_sub(4)).max(24);
+        let h = (picker.models.len() as u16 + 4).min(area.height.saturating_sub(4)).max(6);
+        let x = area.x + (area.width.saturating_sub(w)) / 2;
+        let y = area.y + (area.height.saturating_sub(h)) / 2;
+        let popup = Rect { x, y, width: w, height: h };
+        let inner = (w as usize).saturating_sub(4).max(1);
+        let mut items: Vec<Line<'_>> = Vec::new();
+        for (i, m) in picker.models.iter().enumerate() {
+            let selected = i == picker.selected;
+            let current = if *m == picker.current { " (current)" } else { "" };
+            let (glyph, style) = if selected {
+                ("▸ ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+            } else {
+                ("  ", Style::default().fg(Color::White))
+            };
+            let text = format!("{glyph}{m}{current}");
+            if text.chars().count() > inner {
+                let cut: String = text.chars().take(inner.saturating_sub(1)).collect();
+                items.push(Line::styled(format!("{cut}…"), style));
+            } else {
+                items.push(Line::styled(text, style));
+            }
+        }
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Yellow))
+            .title(Span::styled(
+                " switch model — ↑↓ move · enter select · esc cancel ",
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ));
+        let list = Paragraph::new(items).block(block);
+        f.render_widget(list, popup);
+    }
+
     async fn start_turn(&mut self, prompt: String) {
         let (tx, rx) = mpsc::channel::<UiEvent>(64);
         self.ui_rx = Some(rx);
         let agent = self.agent.clone();
+        let llm = self.llm.clone();
+        let handle = tokio::runtime::Handle::current();
 
-        tokio::spawn(async move {
-            run_turn_streamed(agent, prompt, tx).await;
+        // run the whole turn on tokio's blocking pool, never on the async
+        // workers the ui loop runs on. that gives the ui a hard isolation
+        // guarantee: no tool execution, blocking fs io or cpu work in a turn can
+        // ever contend for a worker and stall rendering.
+        tokio::task::spawn_blocking(move || {
+            handle.block_on(run_turn_streamed(agent, llm, prompt, tx));
         });
     }
 
@@ -875,14 +1036,18 @@ impl TuiAgent {
                     self.messages.push(TuiMessage {
                         role: Role::Assistant,
                         content: std::mem::take(&mut self.streaming),
+                        command: None,
+                        tool: None,
                     });
                 }
             }
-            UiEvent::ToolResult { name, preview } => {
-                self.messages
-                    .push(TuiMessage {
-                        role: Role::Tool, content: format!("{name} → {preview}")
-                    });
+            UiEvent::ToolResult { name, command, preview } => {
+                self.messages.push(TuiMessage {
+                    role: Role::Tool,
+                    command,
+                    tool: Some(name),
+                    content: preview,
+                });
             }
             UiEvent::Context => {
                 self.refresh_cache().await;
@@ -891,8 +1056,12 @@ impl TuiAgent {
                 self.status = s;
             }
             UiEvent::Error(e) => {
-                self.messages
-                    .push(TuiMessage { role: Role::Assistant, content: format!("error: {e}") });
+                self.messages.push(TuiMessage {
+                    role: Role::Assistant,
+                    content: format!("error: {e}"),
+                    command: None,
+                    tool: None,
+                });
                 self.streaming.clear();
                 self.reasoning.clear();
                 self.busy = false;
@@ -912,8 +1081,13 @@ impl TuiAgent {
 
 // background streaming driver — shares Agent via Arc<Mutex<Agent>>
 // lock is held only during req build, history append, tool dispatch — never across .recv().await
-async fn run_turn_streamed(agent: Arc<Mutex<Agent>>, prompt: String, tx: mpsc::Sender<UiEvent>) {
-    if let Err(e) = run_turn_inner(&agent, prompt, &tx).await {
+async fn run_turn_streamed(
+    agent: Arc<Mutex<Agent>>,
+    llm: Arc<dyn LlmClient>,
+    prompt: String,
+    tx: mpsc::Sender<UiEvent>,
+) {
+    if let Err(e) = run_turn_inner(&agent, &llm, prompt, &tx).await {
         let _ = tx.send(UiEvent::Error(e.to_string())).await;
     }
     let _ = tx.send(UiEvent::TurnDone).await;
@@ -921,6 +1095,7 @@ async fn run_turn_streamed(agent: Arc<Mutex<Agent>>, prompt: String, tx: mpsc::S
 
 async fn run_turn_inner(
     agent: &Arc<Mutex<Agent>>,
+    llm: &Arc<dyn LlmClient>,
     prompt: String,
     tx: &mpsc::Sender<UiEvent>,
 ) -> anyhow::Result<()> {
@@ -945,11 +1120,9 @@ async fn run_turn_inner(
                 .send(UiEvent::Status(format!("context full: dropped {dropped} old messages")))
                 .await;
         }
-        // start stream under lock (needs &self), then release lock during .recv().await
-        let mut rx = {
-            let a = agent.lock().await;
-            a.llm.complete_stream(req).await?
-        };
+        // stream via the shared llm client, not under the agent lock: the network
+        // round trip must never block the UI from touching history/config.
+        let mut rx = llm.complete_stream(req).await?;
 
         let mut content = String::new();
         let mut reasoning = String::new();
@@ -1009,12 +1182,23 @@ async fn run_turn_inner(
         }
         let _ = tx.send(UiEvent::Context).await;
         for call in &tool_calls {
-            let result = {
+            // resolve the tool arc under a short lock, then run it OUTSIDE the
+            // agent lock so a slow bash run never blocks the UI from touching
+            // history/config or redrawing while it executes.
+            let tool = {
                 let a = agent.lock().await;
-                a.tools.dispatch_call(call).await.unwrap_or_else(|e| format!("error: {e}"))
+                a.tools.get_owned(&call.name)
+            };
+            let result = match tool {
+                Some(t) => {
+                    t.run(call.arguments.clone()).await.unwrap_or_else(|e| format!("error: {e}"))
+                }
+                None => format!("error: unknown tool: {}", call.name),
             };
             let preview: String = result.chars().take(200).collect();
-            let _ = tx.send(UiEvent::ToolResult { name: call.name.clone(), preview }).await;
+            let command = call.arguments.get("command").and_then(|c| c.as_str()).map(String::from);
+            let _ =
+                tx.send(UiEvent::ToolResult { name: call.name.clone(), command, preview }).await;
             let mut a = agent.lock().await;
             a.history.append_tool_result(call.id.clone(), result);
             let _ = tx.send(UiEvent::Context).await;
@@ -1061,44 +1245,110 @@ fn push_styled_wrapped(lines: &mut Vec<Line<'_>>, text: &str, style: Style, widt
 // render a message with a role label, coloured body, and indented continuation.
 // width is the available inner width of the chat area.
 fn render_message(lines: &mut Vec<Line<'_>>, m: &TuiMessage, model_name: &str, width: usize) {
-    let (label_colour, body_colour, label) = match m.role {
-        Role::User => (Color::Cyan, Color::Cyan, "you".to_string()),
-        Role::Assistant => (Color::LightBlue, Color::White, model_name.to_string()),
+    let (colour, label) = match m.role {
+        Role::User => (Color::Cyan, "you".to_string()),
+        Role::Assistant => (Color::LightBlue, model_name.to_string()),
         Role::Tool => return render_tool_card(lines, m, width),
-        Role::System => (Color::DarkGray, Color::DarkGray, "sys".to_string()),
+        Role::System => (Color::DarkGray, "sys".to_string()),
     };
+    push_box(lines, &label, colour, &m.content, width, None);
+}
 
+// render a tool card: yellow box, with the executed command highlighted when
+// one was recorded (bash tools carry it in their arguments).
+fn render_tool_card(lines: &mut Vec<Line<'_>>, m: &TuiMessage, width: usize) {
+    let label = m.tool.as_deref().unwrap_or("tool");
+    push_box(lines, label, Color::Yellow, &m.content, width, m.command.as_deref());
+}
+
+// draw a squared-off box: top border with the label set into the left corner,
+// then top padding, `│`-bordered body lines, bottom padding, and a `└──┘`
+// footer. the padding keeps text off the frame edges. all border + body spans
+// use `colour`; an optional `command` renders as a highlighted `$ …` line right
+// below the top padding so an executed command can never be mistaken for output.
+fn push_box(
+    lines: &mut Vec<Line<'_>>,
+    label: &str,
+    colour: Color,
+    body: &str,
+    width: usize,
+    command: Option<&str>,
+) {
+    let box_width = width.saturating_sub(2).max(16);
+    let frame = Style::default().fg(colour);
+    // squared top border with the label set into the left corner.
+    let label_fill = box_width.saturating_sub(5 + label.chars().count());
     lines.push(Line::from(vec![
-        Span::styled("▌ ", Style::default().fg(label_colour)),
-        Span::styled(label, Style::default().fg(label_colour).add_modifier(Modifier::BOLD)),
+        Span::styled("┌─", Style::default().fg(colour)),
+        Span::styled(
+            format!(" {label} "),
+            Style::default().fg(colour).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("─".repeat(label_fill), Style::default().fg(colour)),
+        Span::styled("┐", Style::default().fg(colour)),
     ]));
-    let inner = width.saturating_sub(2).max(1);
-    let indent = "  ";
-    if m.content.is_empty() {
-        lines.push(Line::styled(format!("{indent}—"), Style::default().fg(body_colour)));
+
+    let content_width = box_width.saturating_sub(4).max(1);
+    // breathing room above and below the body so text never sits on the frame.
+    lines.push(blank_row(box_width, frame));
+    // command line sits right below the top padding, highlighted in a distinct
+    // colour so it reads as an action, not as tool output.
+    if let Some(cmd) = command {
+        let cmd_style = Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD);
+        let wrapped = wrapped_lines(cmd, content_width.saturating_sub(2));
+        if let Some(first) = wrapped.first() {
+            let pl = content_width.saturating_sub(2).saturating_sub(first.chars().count());
+            lines.push(Line::from(vec![
+                Span::styled("│ ", Style::default().fg(colour)),
+                Span::styled("$ ", cmd_style),
+                Span::styled(format!("{first}{}", " ".repeat(pl)), cmd_style),
+                Span::styled(" │", Style::default().fg(colour)),
+            ]));
+        }
+        for extra_line in wrapped.into_iter().skip(1) {
+            let pl = content_width.saturating_sub(2).saturating_sub(extra_line.chars().count());
+            lines.push(Line::from(vec![
+                Span::styled("│ ", Style::default().fg(colour)),
+                Span::styled(format!("  {extra_line}{}", " ".repeat(pl)), cmd_style),
+                Span::styled(" │", Style::default().fg(colour)),
+            ]));
+        }
+        // blank row between the command and its output.
+        lines.push(blank_row(box_width, frame));
     }
-    for raw in wrapped_lines(&m.content, inner) {
-        lines.push(Line::styled(format!("{indent}{raw}"), Style::default().fg(body_colour)));
+
+    let mut body_lines: Vec<String> = if body.is_empty() {
+        vec!["—".to_string()]
+    } else {
+        wrapped_lines(body, content_width.saturating_sub(2))
+    };
+    body_lines.truncate(120); // guard against runaway tool output
+    for raw in body_lines {
+        let pad = content_width.saturating_sub(2).saturating_sub(raw.chars().count());
+        lines.push(Line::from(vec![
+            Span::styled("│ ", Style::default().fg(colour)),
+            Span::styled(format!("  {raw}{}", " ".repeat(pad)), Style::default().fg(colour)),
+            Span::styled(" │", Style::default().fg(colour)),
+        ]));
     }
+
+    // bottom padding then a squared footer.
+    lines.push(blank_row(box_width, frame));
+    lines.push(Line::from(vec![
+        Span::styled("└", Style::default().fg(colour)),
+        Span::styled("─".repeat(box_width.saturating_sub(2)), Style::default().fg(colour)),
+        Span::styled("┘", Style::default().fg(colour)),
+    ]));
     lines.push(Line::from(""));
 }
 
-// render a tool card with a ⚡ prefix and yellow colouring.
-fn render_tool_card(lines: &mut Vec<Line<'_>>, m: &TuiMessage, width: usize) {
-    let style = Style::default().fg(Color::Yellow);
-    lines.push(Line::from(vec![
-        Span::styled("⚡ ", Style::default().fg(Color::Yellow)),
-        Span::styled("tool", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-    ]));
-    let inner = width.saturating_sub(2).max(1);
-    let indent = "  ";
-    if m.content.is_empty() {
-        lines.push(Line::styled(format!("{indent}—"), style));
-    }
-    for raw in wrapped_lines(&m.content, inner) {
-        lines.push(Line::styled(format!("{indent}{raw}"), style));
-    }
-    lines.push(Line::from(""));
+// a border-only row with no content, used to pad the inside of a box.
+fn blank_row(box_width: usize, style: Style) -> Line<'static> {
+    Line::from(vec![
+        Span::styled("│", style),
+        Span::styled(" ".repeat(box_width.saturating_sub(2)), style),
+        Span::styled("│", style),
+    ])
 }
 
 fn thinking_spinner() -> char {
@@ -1109,6 +1359,20 @@ fn thinking_spinner() -> char {
     let frames = ['◜', '◝', '◞', '◟'];
     let idx = ((nanos / 250_000_000) as usize) % frames.len();
     frames[idx]
+}
+
+// render `path` for display, shortening the user home prefix to `~`.
+fn readable_path(path: &std::path::Path) -> String {
+    let s = path.display().to_string();
+    if let Ok(home) = std::env::var("HOME") {
+        if s == home {
+            return "~".to_string();
+        }
+        if let Some(rest) = s.strip_prefix(&format!("{home}/")) {
+            return format!("~/{rest}");
+        }
+    }
+    s
 }
 
 fn setup_terminal() -> anyhow::Result<Terminal<CrosstermBackend<std::io::Stdout>>> {
@@ -1124,7 +1388,37 @@ fn restore_terminal() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn run(config: Config, llm: Box<dyn LlmClient>) -> anyhow::Result<()> {
+pub async fn run(config: Config, llm: Arc<dyn LlmClient>) -> anyhow::Result<()> {
     let agent = Agent::new(config, llm);
     TuiAgent::new(agent).run().await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::text::Line;
+
+    fn line_width(line: &Line<'_>) -> usize {
+        line.spans.iter().map(|s| s.content.chars().count()).sum()
+    }
+
+    #[test]
+    fn box_all_border_lines_align() {
+        // every border line must be exactly the full box width; a header that
+        // ends short of the right corner is the alignment regression we guard.
+        for (label, command) in
+            [("you", None), ("tool", Some("echo hi")), ("assistant_model", None)]
+        {
+            let mut lines: Vec<Line<'_>> = Vec::new();
+            let width = 60usize;
+            push_box(&mut lines, label, Color::Cyan, "a multi-line\nbody here", width, command);
+            let expected = width.saturating_sub(2);
+            assert!(!lines.is_empty());
+            let (borders, sep) = lines.split_at(lines.len() - 1);
+            assert_eq!(line_width(&sep[0]), 0, "box must end with a blank separator");
+            for (i, l) in borders.iter().enumerate() {
+                assert_eq!(line_width(l), expected, "line {i} not full box width");
+            }
+        }
+    }
 }

@@ -37,7 +37,7 @@ fn commands_register_core_slash_commands() {
     let (_dir, api) = registered();
     // when: registry is inspected
     // then: every core slash command is registered
-    for cmd in ["help", "clear", "new", "model", "undo", "quit", "context"] {
+    for cmd in ["help", "clear", "new", "model", "undo", "quit", "context", "reasoning"] {
         assert!(api.commands.get(cmd).is_some(), "/{cmd} should be registered");
     }
 }
@@ -50,10 +50,106 @@ fn commands_clear_returns_clear_action() {
         system_prompt: String::new(),
         args: String::new(),
         snapshot: json!({"messages":[],"max_turns":20}),
+        reasoning: false,
+        available_models: Vec::new(),
     };
     // when: the clear command is dispatched
     let result = api.commands.dispatch("clear", &ctx).expect("dispatch clear");
     // then: history is cleared
     assert_eq!(result.message, "history cleared");
     assert!(matches!(result.action, Some(code_o_matic::CommandAction::ClearHistory)));
+}
+
+#[test]
+fn reasoning_cmd_reports_state_and_sets() {
+    let (_dir, api) = registered();
+    let base = code_o_matic::CommandContext {
+        model: "m".into(),
+        system_prompt: String::new(),
+        args: String::new(),
+        snapshot: json!({}),
+        reasoning: false,
+        available_models: Vec::new(),
+    };
+
+    // no arg toggles and reports the new state
+    let r = api.commands.dispatch("reasoning", &base).unwrap();
+    assert_eq!(r.message, "reasoning on");
+    assert!(matches!(r.action, Some(code_o_matic::CommandAction::SetReasoning(true))));
+
+    // explicit on/off
+    let r = api
+        .commands
+        .dispatch("reasoning", &code_o_matic::CommandContext { args: "off".into(), ..base.clone() })
+        .unwrap();
+    assert_eq!(r.message, "reasoning off");
+    assert!(matches!(r.action, Some(code_o_matic::CommandAction::SetReasoning(false))));
+
+    let r = api
+        .commands
+        .dispatch("reasoning", &code_o_matic::CommandContext { args: "on".into(), ..base.clone() })
+        .unwrap();
+    assert_eq!(r.message, "reasoning on");
+
+    // invalid arg reports current state without action
+    let r = api
+        .commands
+        .dispatch(
+            "reasoning",
+            &code_o_matic::CommandContext { args: "bogus".into(), ..base.clone() },
+        )
+        .unwrap();
+    assert!(r.message.contains("reasoning is currently off"));
+    assert!(r.action.is_none());
+}
+
+#[test]
+fn model_cmd_lists_discovered_and_marks_current() {
+    let (_dir, api) = registered();
+    let base = code_o_matic::CommandContext {
+        model: "gpt-4o".into(),
+        system_prompt: String::new(),
+        args: String::new(),
+        snapshot: json!({}),
+        reasoning: false,
+        available_models: vec!["gpt-4o".into(), "gpt-4o-mini".into(), "claude-3.5".into()],
+    };
+    // bare /model with discovered models opens the interactive picker
+    let r = api.commands.dispatch("model", &base).expect("open picker");
+    assert!(
+        matches!(r.action, Some(code_o_matic::CommandAction::OpenModelPicker)),
+        "should open picker: {r:?}"
+    );
+}
+
+#[test]
+fn model_cmd_switches_by_name() {
+    let (_dir, api) = registered();
+    let base = code_o_matic::CommandContext {
+        model: "gpt-4o".into(),
+        system_prompt: String::new(),
+        args: "claude-3.5".into(),
+        snapshot: json!({}),
+        reasoning: false,
+        available_models: vec!["gpt-4o".into(), "claude-3.5".into()],
+    };
+    let r = api.commands.dispatch("model", &base).expect("switch model");
+    assert!(
+        matches!(r.action, Some(code_o_matic::CommandAction::SetModel(ref m)) if m == "claude-3.5")
+    );
+}
+
+#[test]
+fn model_cmd_reports_empty_discovery() {
+    let (_dir, api) = registered();
+    let base = code_o_matic::CommandContext {
+        model: "gpt-4o".into(),
+        system_prompt: String::new(),
+        args: String::new(),
+        snapshot: json!({}),
+        reasoning: false,
+        available_models: Vec::new(),
+    };
+    let r = api.commands.dispatch("model", &base).expect("empty discovery");
+    assert!(r.message.contains("no models discovered"));
 }

@@ -220,6 +220,8 @@ mod tests {
             system_prompt: String::new(),
             args: String::from("missing"),
             snapshot: serde_json::Value::Null,
+            reasoning: false,
+            available_models: Vec::new(),
         };
         // when: skill_show runs for a name not present in state
         let result = skill_show(&ctx, &state).unwrap();

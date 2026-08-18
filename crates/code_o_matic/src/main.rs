@@ -6,6 +6,7 @@
 #![allow(clippy::print_stderr)]
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::Result;
 use code_o_matic::config::Config;
@@ -20,14 +21,18 @@ async fn main() -> Result<()> {
         std::env::var("COM_MODEL").unwrap_or_else(|_| "deepseek-v4-flash-abliterated".to_string());
     let repo_root = std::env::var("COM_REPO_ROOT").unwrap_or_else(|_| ".".to_string());
     let llm_provider = std::env::var("COM_LLM_PROVIDER").unwrap_or_else(|_| "twobobs".to_string());
-    let config = Config {
+    let mut config = Config {
         repo_root: PathBuf::from(repo_root).canonicalize()?,
         llm_provider,
         model,
         ..Config::default()
     };
-    let llm: Box<dyn LlmClient> =
-        Box::new(llm::HttpLlmClient::from_provider(&config.llm_provider).await?);
+    let llm: Arc<dyn LlmClient> =
+        Arc::new(llm::HttpLlmClient::from_provider(&config.llm_provider).await?);
+    // discover the model list the endpoint advertises so /model can offer it.
+    // non-fatal: if the endpoint is unreachable we proceed with the configured
+    // model and empty discovery.
+    config.available_models = llm.list_models().await.unwrap_or_default();
 
     let args: Vec<String> = std::env::args().collect();
     // collect non-flag prompt args

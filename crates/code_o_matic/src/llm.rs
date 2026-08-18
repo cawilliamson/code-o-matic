@@ -13,6 +13,11 @@ use crate::tools::ToolCall;
 #[async_trait]
 pub trait LlmClient: Send + Sync {
     async fn complete(&self, req: LlmRequest) -> anyhow::Result<LlmResponse>;
+    /// discover model ids exposed by the endpoint. default: none (non-network
+    /// implementors skip discovery).
+    async fn list_models(&self) -> anyhow::Result<Vec<String>> {
+        Ok(Vec::new())
+    }
     async fn complete_stream(
         &self,
         req: LlmRequest,
@@ -231,6 +236,29 @@ fn parse_price(s: &Option<String>) -> f64 {
 
 #[async_trait]
 impl LlmClient for HttpLlmClient {
+    async fn list_models(&self) -> anyhow::Result<Vec<String>> {
+        let url = format!("{}/models", self.base_url.trim_end_matches('/'));
+        let resp = self
+            .client
+            .get(&url)
+            .header(AUTHORIZATION, format!("Bearer {}", self.api_key))
+            .send()
+            .await?;
+        let parsed: serde_json::Value = serde_json::from_str(&resp.text().await?)?;
+        let mut ids: Vec<String> = parsed
+            .get("data")
+            .and_then(|d| d.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|m| m.get("id").and_then(|i| i.as_str()).map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        ids.sort();
+        ids.dedup();
+        Ok(ids)
+    }
+
     async fn complete(&self, req: LlmRequest) -> anyhow::Result<LlmResponse> {
         let mut body = build_openai_body(&req);
         body["stream"] = Value::Bool(false);
@@ -718,4 +746,55 @@ mod tests {
         assert!(!ProviderKind::OpenAi.fetches_rates());
         assert!(ProviderKind::Twobobs.fetches_rates());
     }
+}
+
+#[test]
+fn body_sets_reasoning_effort_for_glm52() {
+    let req = crate::history::LlmRequest {
+        model: "glm-5.2-x".into(),
+        messages: Vec::new(),
+        tools: Vec::new(),
+    };
+    let body = build_openai_body(&req);
+    assert_eq!(body["model"], "glm-5.2-x");
+    assert_eq!(body["reasoning_effort"], "high");
+    assert_eq!(body["stream"], false);
+}
+
+#[test]
+fn body_omits_reasoning_effort_for_other_models() {
+    let req = crate::history::LlmRequest {
+        model: "gpt-4o".into(),
+        messages: Vec::new(),
+        tools: Vec::new(),
+    };
+    let body = build_openai_body(&req);
+    assert!(body.get("reasoning_effort").is_none());
+    assert_eq!(body["model"], "gpt-4o");
+}
+
+#[test]
+fn body_maps_input_schema_to_parameters() {
+    let req = crate::history::LlmRequest {
+        model: "m".into(),
+        messages: Vec::new(),
+        tools: vec![json!({
+            "name": "bash",
+            "description": "run a command",
+            "input_schema": { "type": "object" }
+        })],
+    };
+    let body = build_openai_body(&req);
+    let tool = &body["tools"][0]["function"];
+    assert!(tool.get("input_schema").is_none());
+    assert_eq!(tool["parameters"]["type"], "object");
+    assert_eq!(tool["name"], "bash");
+}
+
+#[test]
+fn parse_price_parses_numbers_and_defaults_zero() {
+    assert_eq!(parse_price(&Some("0.15".to_string())), 0.15);
+    assert_eq!(parse_price(&Some(String::new())), 0.0);
+    assert_eq!(parse_price(&Some("not-a-number".to_string())), 0.0);
+    assert_eq!(parse_price(&None), 0.0);
 }

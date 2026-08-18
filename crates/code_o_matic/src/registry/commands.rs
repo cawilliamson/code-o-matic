@@ -15,6 +15,10 @@ pub struct CommandContext {
     pub args: String,
     /// conversation snapshot — same shape as view builder input.
     pub snapshot: serde_json::Value,
+    /// whether reasoning stream is shown.
+    pub reasoning: bool,
+    /// model ids the endpoint advertises (may be empty if discovery failed).
+    pub available_models: Vec<String>,
 }
 
 /// the outcome a command handler returns. the tui interprets the action and
@@ -36,6 +40,10 @@ pub enum CommandAction {
     ClearHistory,
     /// switch the active model.
     SetModel(String),
+    /// open the interactive model picker overlay.
+    OpenModelPicker,
+    /// set whether the reasoning stream is shown.
+    SetReasoning(bool),
     /// exit the agent.
     Exit,
     /// append text as a user message and run a turn.

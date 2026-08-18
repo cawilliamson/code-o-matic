@@ -138,6 +138,12 @@ impl ToolRegistry {
     ///
     /// returns `ToolError::InvalidArgs` if `name` is not registered, or the
     /// tool's own error if execution fails.
+    /// a clone of the arc for `name`, letting a caller execute the tool without
+    /// holding whatever lock guards this registry.
+    pub fn get_owned(&self, name: &str) -> Option<Arc<dyn Tool>> {
+        self.tools.get(name).cloned()
+    }
+
     pub async fn dispatch(&self, name: &str, args: Value) -> Result<String, ToolError> {
         let tool = self
             .tools

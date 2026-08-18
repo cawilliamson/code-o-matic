@@ -16,6 +16,8 @@ fn ctx(args: &str) -> CommandContext {
         system_prompt: String::new(),
         args: args.into(),
         snapshot: serde_json::json!({}),
+        reasoning: false,
+        available_models: Vec::new(),
     }
 }
 

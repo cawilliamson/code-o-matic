@@ -118,3 +118,71 @@ fn apply_unique(content: &str, old: &str, new: &str, path: &str) -> Result<Strin
     };
     Ok(format!("{}{}{}", &content[..start], new, &content[start + old.len()..]))
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    fn apply(content: &str, old: &str, new: &str) -> Result<String, ToolError> {
+        apply_unique(content, old, new, "test.txt")
+    }
+
+    #[test]
+    fn unique_match_is_replaced() {
+        assert_eq!(apply("a b c", " b ", " X ").unwrap(), "a X c");
+    }
+
+    #[test]
+    fn replaces_at_content_boundaries() {
+        assert_eq!(apply("start tail", "start", "X").unwrap(), "X tail");
+        assert_eq!(apply("head end", "end", "Y").unwrap(), "head Y");
+    }
+
+    #[test]
+    fn absent_match_errors_with_guidance() {
+        let err = apply("hello", "xyz", "q").unwrap_err();
+        match err {
+            ToolError::InvalidArgs(msg) => assert!(msg.contains("not found"), "{msg}"),
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn ambiguous_match_errors() {
+        let err = apply("a a a", "a", "b").unwrap_err();
+        match err {
+            ToolError::InvalidArgs(msg) => assert!(msg.contains("times"), "{msg}"),
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn repeated_substring_counted_as_multiple_occurrences() {
+        // "bb" occurs at index 0 and 2 in "bbbb" → ambiguous
+        assert!(apply("bbbb", "bb", "X").is_err());
+    }
+
+    #[test]
+    fn empty_old_text_is_rejected() {
+        assert!(apply("abc", "", "x").is_err());
+    }
+
+    #[test]
+    fn empty_replacement_is_a_deletion() {
+        assert_eq!(apply("abc", "b", "").unwrap(), "ac");
+    }
+
+    #[test]
+    fn multibyte_content_is_not_split() {
+        assert_eq!(apply("éclair", "é", "E").unwrap(), "Eclair");
+        assert_eq!(apply("café au lait", "café", "tea").unwrap(), "tea au lait");
+    }
+
+    #[test]
+    fn single_edit_never_touches_later_occurrence() {
+        // two "!" are ambiguous and must error
+        assert!(apply("a!b!c", "!", "x").is_err(), "two ! are ambiguous");
+        assert_eq!(apply("a!b!c", "b", "z").unwrap(), "a!z!c");
+    }
+}

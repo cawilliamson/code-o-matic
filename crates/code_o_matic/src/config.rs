@@ -18,7 +18,8 @@ pub(crate) fn truncate_chars(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         return s.to_string();
     }
-    let cut = s.char_indices().take(max).map(|(i, _)| i).last().unwrap_or(0);
+    // byte offset just past the `max`-th character (never splits a char)
+    let cut = s.char_indices().nth(max).map(|(i, _)| i).unwrap_or(s.len());
     format!("{}…[truncated]", &s[..cut])
 }
 
@@ -31,6 +32,8 @@ pub struct Config {
     pub llm_provider: String,
     /// model identifier passed to the provider.
     pub model: String,
+    /// models the endpoint advertises, discovered at launch (may be empty).
+    pub available_models: Vec<String>,
     /// maximum conversation turns before compaction.
     pub max_turns: usize,
     /// bash execution policy.
@@ -43,6 +46,7 @@ impl Default for Config {
             repo_root: PathBuf::from("."),
             llm_provider: String::from("twobobs"),
             model: String::from("deepseek-v4-flash-abliterated"),
+            available_models: Vec::new(),
             max_turns: 20,
             bash: BashConfig::default(),
         }
@@ -59,5 +63,41 @@ pub struct BashConfig {
 impl Default for BashConfig {
     fn default() -> Self {
         Self { timeout_secs: 30 }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_keeps_short_input_unchanged() {
+        assert_eq!(truncate_chars("hello", 10), "hello");
+        assert_eq!(truncate_chars("hello", 5), "hello");
+    }
+
+    #[test]
+    fn truncate_marks_dropped_content() {
+        // 'z' never appears in "[truncated]" so the count is clean
+        let out = truncate_chars(&"z".repeat(100), 10);
+        assert!(out.contains("[truncated]"), "missing marker: {out}");
+        assert_eq!(out.matches('z').count(), 10);
+    }
+
+    #[test]
+    fn truncate_cuts_on_char_boundary() {
+        // each "é" is 2 utf-8 bytes; truncation must not split one
+        let s = "é".repeat(50);
+        let out = truncate_chars(&s, 5);
+        assert_eq!(out.matches('é').count(), 5);
+        assert!(out.ends_with("[truncated]"));
+    }
+
+    #[test]
+    fn truncate_handles_ascii_prefix_with_multibyte_tail() {
+        let s = format!("{}\u{1F600}", "x".repeat(20)); // 20 ascii + 1 emoji
+        let out = truncate_chars(&s, 3);
+        assert_eq!(out, "xxx…[truncated]");
     }
 }
