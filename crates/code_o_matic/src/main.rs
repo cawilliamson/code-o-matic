@@ -33,6 +33,14 @@ async fn main() -> Result<()> {
     // non-fatal: if the endpoint is unreachable we proceed with the configured
     // model and empty discovery.
     config.available_models = llm.list_models().await.unwrap_or_default();
+    // if the configured model isn't offered by the endpoint, fall back to the
+    // first advertised model so a stale default never hard-fails a turn.
+    if !config.available_models.is_empty() && !config.available_models.contains(&config.model) {
+        if let Some(first) = config.available_models.first() {
+            eprintln!("[model] {} not offered; using {first}", config.model);
+            config.model = first.clone();
+        }
+    }
 
     let args: Vec<String> = std::env::args().collect();
     // collect non-flag prompt args
