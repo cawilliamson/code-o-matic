@@ -60,23 +60,71 @@ async fn run_shell(
     repo_root: &std::path::Path,
     raw: &str,
 ) -> Result<String, ToolError> {
-    let child = tokio::process::Command::new("sh")
+    let mut child = tokio::process::Command::new("sh")
         .arg("-c")
         .arg(raw)
         .current_dir(repo_root)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()?;
+    // take the output pipes first and read them on their own tasks so a slow or
+    // chatty command is drained concurrently instead of deadlocking on a full pipe.
+    let stdout_pipe = child.stdout.take();
+    let stderr_pipe = child.stderr.take();
+    // keep the child inside a shared slot so an raii guard can kill it if this
+    // future is dropped before the command exits (e.g. the turn is interrupted by
+    // esc). nothing else contends for this lock, so holding it across `wait` is fine.
+    let shared = std::sync::Arc::new(tokio::sync::Mutex::new(Some(child)));
+    struct KillOnDrop(std::sync::Arc<tokio::sync::Mutex<Option<tokio::process::Child>>>);
+    impl Drop for KillOnDrop {
+        fn drop(&mut self) {
+            // never blocks a runtime thread: if the lock is contended we skip and
+            // leave the command to finish in the background (harmless).
+            let Ok(mut guard) = self.0.try_lock() else { return };
+            if let Some(mut c) = guard.take() {
+                let _ = c.start_kill();
+            }
+        }
+    }
+    let _guard = KillOnDrop(shared.clone());
+
+    let stdout_task = tokio::task::spawn(read_pipe(stdout_pipe));
+    let stderr_task = tokio::task::spawn(read_pipe(stderr_pipe));
     let timeout = std::time::Duration::from_secs(config.timeout_secs.max(1));
-    let output = match tokio::time::timeout(timeout, child.wait_with_output()).await {
-        Ok(res) => res.map_err(ToolError::Io)?,
-        Err(_) => return Err(ToolError::Command("command timed out".into())),
+    let status = {
+        let mut guard = shared.lock().await;
+        let child = guard.as_mut().expect("bash child present");
+        match tokio::time::timeout(timeout, child.wait()).await {
+            Ok(s) => s.map_err(ToolError::Io)?,
+            Err(_) => {
+                let _ = child.start_kill();
+                return Err(ToolError::Command("command timed out".into()));
+            }
+        }
     };
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-    let code = output.status.code().unwrap_or(-1);
+    // the child has exited, so both pipes have hit eof and the read tasks are done.
+    let stdout = match stdout_task.await {
+        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+        Err(_) => String::new(),
+    };
+    let stderr = match stderr_task.await {
+        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+        Err(_) => String::new(),
+    };
+    drop(shared);
+    let code = status.code().unwrap_or(-1);
     if code != 0 {
         return Err(ToolError::Command(format!("exit {code}: {stderr}")));
     }
     Ok(stdout)
+}
+
+use tokio::io::{AsyncRead, AsyncReadExt};
+
+async fn read_pipe<R: AsyncRead + Unpin>(mut pipe: Option<R>) -> Vec<u8> {
+    let mut buf = Vec::new();
+    if let Some(h) = pipe.as_mut() {
+        let _ = h.read_to_end(&mut buf).await;
+    }
+    buf
 }

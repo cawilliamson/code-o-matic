@@ -18,7 +18,7 @@ use ratatui::widgets::{
     ScrollbarState, Wrap,
 };
 use ratatui::Frame;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, Mutex, Notify};
 
 use crate::config::Config;
 use crate::history::Role;
@@ -80,6 +80,9 @@ pub struct TuiAgent {
     follow_bottom: bool,
     last_max_scroll: usize,
     ui_rx: Option<mpsc::Receiver<UiEvent>>,
+    /// signalled by esc to hard-stop the running turn (drops the llm stream and
+    /// cancels any in-flight tool). fresh per turn.
+    cancel: Option<Arc<Notify>>,
     model_name: String,
     context_viewer: Option<ContextViewerState>,
     model_picker: Option<ModelPickerState>,
@@ -112,6 +115,7 @@ impl TuiAgent {
             follow_bottom: true,
             last_max_scroll: 0,
             ui_rx: None,
+            cancel: None,
             model_name,
             context_viewer: None,
             model_picker: None,
@@ -826,6 +830,11 @@ impl TuiAgent {
                 KeyCode::End => {
                     self.follow_bottom = true;
                 }
+                KeyCode::Esc if self.busy => {
+                    // hard-stop the turn: kill the llm stream, cancel any tool,
+                    // drop straight back to a ready prompt.
+                    self.cancel_turn().await;
+                }
                 KeyCode::Home => {
                     self.follow_bottom = false;
                     self.chat_scroll = 0;
@@ -1010,15 +1019,34 @@ impl TuiAgent {
         self.ui_rx = Some(rx);
         let agent = self.agent.clone();
         let llm = self.llm.clone();
+        // fresh cancel signal for this turn; esc notifies it, which races the turn
+        // future to a stop (tearing down the llm stream + any running tool).
+        let cancel = Arc::new(Notify::new());
+        self.cancel = Some(cancel.clone());
         let handle = tokio::runtime::Handle::current();
 
         // run the whole turn on tokio's blocking pool, never on the async
         // workers the ui loop runs on. that gives the ui a hard isolation
         // guarantee: no tool execution, blocking fs io or cpu work in a turn can
-        // ever contend for a worker and stall rendering.
+        // ever contend for a worker and stall rendering. the turn is still
+        // cancellable: it races itself against the cancel signal below.
         tokio::task::spawn_blocking(move || {
-            handle.block_on(run_turn_streamed(agent, llm, prompt, tx));
+            handle.block_on(run_turn_streamed(agent, llm, prompt, tx, cancel));
         });
+    }
+
+    /// hard-stop the running turn: signal it, then drop all turn state so the ui
+    /// returns to a ready prompt immediately. any remaining UiEvents from the dying
+    /// task hit a dropped receiver and are discarded.
+    async fn cancel_turn(&mut self) {
+        if let Some(c) = self.cancel.take() {
+            c.notify_waiters();
+        }
+        self.busy = false;
+        self.streaming.clear();
+        self.reasoning.clear();
+        self.ui_rx = None;
+        self.status = "stopped".to_string();
     }
 
     async fn handle_ui_event(&mut self, evt: UiEvent) -> anyhow::Result<bool> {
@@ -1086,11 +1114,28 @@ async fn run_turn_streamed(
     llm: Arc<dyn LlmClient>,
     prompt: String,
     tx: mpsc::Sender<UiEvent>,
+    cancel: Arc<Notify>,
 ) {
-    if let Err(e) = run_turn_inner(&agent, &llm, prompt, &tx).await {
-        let _ = tx.send(UiEvent::Error(e.to_string())).await;
+    let inner = run_turn_inner(&agent, &llm, prompt, &tx);
+    tokio::pin!(inner);
+    // race the whole turn against the cancel signal. on esc the turn future is
+    // dropped, which discards the in-flight llm stream (closing the connection)
+    // and any running tool. the ui loop already reset its own state via
+    // cancel_turn, so there is nothing further to send here.
+    tokio::select! {
+        result = &mut inner => {
+            match result {
+                Ok(()) => {
+                    let _ = tx.send(UiEvent::TurnDone).await;
+                }
+                Err(e) => {
+                    let _ = tx.send(UiEvent::Error(e.to_string())).await;
+                    let _ = tx.send(UiEvent::TurnDone).await;
+                }
+            }
+        }
+        _ = cancel.notified() => {}
     }
-    let _ = tx.send(UiEvent::TurnDone).await;
 }
 
 async fn run_turn_inner(
